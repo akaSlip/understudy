@@ -25,15 +25,9 @@ export const KOKORO_VOICES: (TTSVoice & { gender: 'f' | 'm' })[] = [
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let ttsPromise: Promise<any> | null = null
-let loadState: 'idle' | 'loading' | 'ready' | 'error' = 'idle'
-
-export function kokoroLoadState() {
-  return loadState
-}
 
 async function getTTS(): Promise<any> {
   if (!ttsPromise) {
-    loadState = 'loading'
     ttsPromise = (async () => {
       const mod: any = await import('kokoro-js')
       const KokoroTTS = mod.KokoroTTS
@@ -44,14 +38,11 @@ async function getTTS(): Promise<any> {
       let lastErr: unknown
       for (const a of attempts) {
         try {
-          const tts = await KokoroTTS.from_pretrained(MODEL_ID, a)
-          loadState = 'ready'
-          return tts
+          return await KokoroTTS.from_pretrained(MODEL_ID, a)
         } catch (e) {
           lastErr = e
         }
       }
-      loadState = 'error'
       throw lastErr
     })()
   }

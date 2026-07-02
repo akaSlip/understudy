@@ -3,7 +3,7 @@
 //   npx esbuild src/dev/smoke.ts --bundle --format=esm --platform=node \
 //     --outfile=/tmp/understudy-smoke.mjs && node /tmp/understudy-smoke.mjs
 
-import { mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
+import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
 import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
 import { isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
@@ -154,6 +154,45 @@ check('premium tagged text uses [tags]', segmentsToTaggedText(lear!.segments!) =
 check('angry ≠ neutral prosody', directionToProsody('angrily').pitch !== 1 && directionToProsody('angrily').rate > 1)
 check('sad direction slows + lowers', directionToProsody('defeated').rate < 1 && directionToProsody('defeated').pitch < 1)
 check('unknown direction is neutral', directionToProsody('quizzically-ish-xyz').rate === 1 && directionToProsody('quizzically-ish-xyz').pitch === 1)
+
+console.log('\n— audit regressions —')
+// M6: a short line delivered as an accepted homophone must still PASS.
+const homoshort = scoreLine('There!', 'their')
+check('one-word homophone line passes (near = full pass credit)', homoshort.passed === true, homoshort.accuracy)
+check('…but displayed accuracy still shows the difference', homoshort.accuracy < 1, homoshort.accuracy)
+
+// M4: a trailing "(sadly)" colours the previous segment instead of being scoreable text.
+const trailing = parseScript('A: Goodbye then. (sadly)')
+const tBeat = trailing.beats.find((b) => b.kind === 'dialogue')!
+check('trailing direction removed from scoreable text', !tBeat.text.includes('('), tBeat.text)
+check('trailing direction attached to the segment', tBeat.segments?.some((s) => s.direction === 'sadly') === true, tBeat.segments)
+
+// M4b: a direction-only line becomes a parenthetical, not spoken/scored words.
+const only = parseScript('A: (bewildered)\n\nB: hello')
+const oBeat = only.beats.find((b) => b.kind === 'dialogue' && b.characterId === only.characters[0].id)!
+check('direction-only line is not scoreable text', oBeat.text === '' && oBeat.parenthetical === 'bewildered', oBeat)
+
+// M5: tidy-merge folds the parenthetical into segments WITHOUT leaving a duplicate.
+const dbl2 = parseScript('A\n(coldly)\nFirst part.\n\nA\n(warmly) Second part.')
+const merged2 = mergeConsecutiveDialogue(dbl2.beats).find((b) => b.kind === 'dialogue')!
+check('merge clears the stale parenthetical (no double display)', merged2.parenthetical === undefined && merged2.segments?.[0]?.direction === 'coldly', {
+  parenthetical: merged2.parenthetical,
+  seg0: merged2.segments?.[0]?.direction,
+})
+
+// H3: re-parsing a play re-adopts existing character/beat ids where unchanged.
+const orig = parseScript('Title: T\n\nHAMLET: To be or not to be.\n\nOPHELIA: Good my lord.')
+const origPlay = { characters: orig.characters, beats: orig.beats }
+const roundTripped = parseScript(toFountain({ title: 'T', characters: orig.characters, beats: orig.beats }))
+const adopted = adoptExistingIds(roundTripped.characters, roundTripped.beats, origPlay)
+check('adopt: unchanged characters keep their ids', adopted.characters.every((c, i) => c.id === orig.characters[i].id))
+check('adopt: unchanged beats keep their ids', adopted.beats.filter((b) => b.kind === 'dialogue').every((b) => orig.beats.some((o) => o.id === b.id)))
+const edited = parseScript('HAMLET: To be or not to be, that is the question.\n\nOPHELIA: Good my lord.')
+const adopted2 = adoptExistingIds(edited.characters, edited.beats, origPlay)
+const hamBeat = adopted2.beats.find((b) => b.kind === 'dialogue' && /question/.test(b.text))!
+const ophBeat = adopted2.beats.find((b) => b.kind === 'dialogue' && /lord/.test(b.text))!
+check('adopt: an edited beat gets a fresh id', !orig.beats.some((o) => o.id === hamBeat.id))
+check('adopt: an untouched beat still keeps its id', orig.beats.some((o) => o.id === ophBeat.id))
 
 console.log('\n— scorer fixes —')
 const dash = scoreLine('Well — no.', 'well no')

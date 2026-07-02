@@ -2,6 +2,8 @@
 // in their browser (rather than failing at "Start rehearsal").
 
 import type { AppSettings } from '../store/settings'
+import { isPremiumEngine } from '../tts/premium'
+import { ENGINE_INFO } from '../tts/premiumVoices'
 
 export interface Capabilities {
   secureContext: boolean
@@ -75,6 +77,21 @@ export function compatibilityReport(caps: Capabilities, settings: AppSettings): 
       level: 'warn',
       message: 'No system speech voices here — choose the Kokoro voice in Settings for the scene partner.',
     })
+  }
+
+  // A cloud voice without its key would fail on the first partner line — catch
+  // it here, before the rehearsal starts.
+  if (isPremiumEngine(settings.tts)) {
+    const cfg = settings.premium[settings.tts]
+    const usable = !!cfg?.apiKey || (settings.tts === 'elevenlabs' && !!cfg?.proxyUrl)
+    if (!usable) {
+      issues.push({
+        level: 'error',
+        message: `The ${ENGINE_INFO[settings.tts].label} voice needs an API key — add one in Settings, or switch to a free voice.`,
+      })
+    } else if (settings.tts === 'azure' && !cfg?.region) {
+      issues.push({ level: 'error', message: 'Azure Speech needs a region (e.g. "uksouth") in Settings.' })
+    }
   }
 
   return issues

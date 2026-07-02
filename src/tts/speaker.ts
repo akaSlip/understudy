@@ -4,7 +4,7 @@
 import type { LineSegment, VoiceAssignment } from '../types'
 import { getCachedAudio, putCachedAudio } from '../store/audioCache'
 import { generateKokoro } from './kokoro'
-import { generatePremium, plainText, type PremiumConfig } from './premium'
+import { generatePremium, isPremiumEngine, plainText, type PremiumConfig } from './premium'
 import { cancelWebSpeech, speakWebSpeechSegments } from './webspeech'
 
 export interface SpeakerConfig {
@@ -34,11 +34,15 @@ export class Speaker {
     this.cfg = cfg
   }
 
-  /** Cache key for a (possibly multi-segment) line under this voice/engine. */
+  /** Cache key for a (possibly multi-segment) line under this voice/engine.
+   *  Playback rate is deliberately NOT in the key: the generated audio is
+   *  rate-independent (rate is applied at playback), so changing the speed
+   *  slider must not regenerate identical audio (a real cost on cloud engines).
+   *  The model only matters for premium engines. */
   private keyFor(voice: VoiceAssignment, segments: LineSegment[]): string {
     const sig = segments.map((s) => `${s.direction ?? ''}:${s.text}`).join('¦')
-    const model = this.cfg.premium?.model ?? ''
-    return [voice.engine, voice.voiceId ?? 'default', voice.rate ?? this.cfg.rate, model, djb2(sig)].join('|')
+    const model = isPremiumEngine(voice.engine) ? (this.cfg.premium?.model ?? '') : ''
+    return [voice.engine, voice.voiceId ?? 'default', model, djb2(sig)].join('|')
   }
 
   /** Speak `text` with `voice`; resolves when finished, rejects AbortError if stopped. */

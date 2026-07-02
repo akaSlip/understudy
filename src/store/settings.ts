@@ -37,8 +37,6 @@ export interface AppSettings {
   autoAdvance: boolean
   /** After this long with no new correct word, reveal the line as a prompt. */
   stuckTimeoutMs: number
-  /** "Keep the flow going": auto-advance past an unfinished line after this long. */
-  keepFlowTimeoutMs: number
   /** Wait until the actor reaches the END of the line before accepting a pass,
    *  so a mid-line pause never scores a half-said line. */
   waitForCompletion: boolean
@@ -69,7 +67,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   strict: false,
   autoAdvance: true,
   stuckTimeoutMs: 3500,
-  keepFlowTimeoutMs: 9000,
   waitForCompletion: true,
   endSilenceMs: 1200,
   speakStageDirections: false,

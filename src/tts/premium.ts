@@ -192,7 +192,8 @@ async function openai(segments: LineSegment[], voiceId: string | undefined, cfg:
 
 async function gemini(segments: LineSegment[], voiceId: string | undefined, cfg: PremiumConfig): Promise<Blob> {
   const model = cfg.model || 'gemini-2.5-flash-preview-tts'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cfg.apiKey}`
+  // Key goes in the header, not the URL — query strings end up in proxy/server logs.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
   const body = JSON.stringify({
     contents: [{ parts: [{ text: geminiPrompt(segments) }] }],
     generationConfig: {
@@ -200,7 +201,11 @@ async function gemini(segments: LineSegment[], voiceId: string | undefined, cfg:
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceId || 'Kore' } } },
     },
   })
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey! },
+    body,
+  })
   if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text().catch(() => '')}`)
   const json = await res.json()
   const part = json?.candidates?.[0]?.content?.parts?.find((p: { inlineData?: unknown }) => p.inlineData)
@@ -232,5 +237,6 @@ async function azure(segments: LineSegment[], voiceId: string | undefined, cfg: 
     return new Blob([data], { type: 'audio/mpeg' })
   } finally {
     synth.close()
+    speechConfig.close() // the config holds native handles too
   }
 }

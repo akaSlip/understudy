@@ -190,13 +190,6 @@ function runUtterances(items: Utterance[], opts: WebSpeechOptions): Promise<void
   })
 }
 
-export function speakWebSpeech(text: string, opts: WebSpeechOptions = {}): Promise<void> {
-  const rate = opts.rate ?? 1
-  const pitch = opts.pitch ?? 1
-  const items: Utterance[] = chunk(text).map((t) => ({ text: t, rate, pitch, gapBefore: 0 }))
-  return runUtterances(items, opts)
-}
-
 /** Speak a line whose emotion shifts partway through: each segment gets its own
  *  pitch/rate (approximating its direction) and a short pause before it. */
 export function speakWebSpeechSegments(segments: LineSegment[], opts: WebSpeechOptions = {}): Promise<void> {

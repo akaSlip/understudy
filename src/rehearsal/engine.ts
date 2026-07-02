@@ -35,7 +35,6 @@ export interface RehearsalState {
   totalBeats: number
   beat?: Beat
   isMyLine: boolean
-  speakingCharId?: string
   /** Accumulated recognizer transcript for the current line. */
   transcript: string
   score?: LineScore
@@ -105,6 +104,9 @@ export class RehearsalEngine {
   private revealed = false
   private speakingCharId: string | undefined
   private attempts: LineAttempt[] = []
+  /** Index into `attempts` per beat id, so a revisited line updates its entry
+   *  instead of appending a duplicate (which would inflate the summary counts). */
+  private attemptIndexByBeat = new Map<string, number>()
   private error: string | undefined
 
   // Projection stats for the current line.
@@ -114,7 +116,6 @@ export class RehearsalEngine {
   private autoCueOverride: boolean | undefined
 
   private stuckTimer?: ReturnType<typeof setTimeout>
-  private keepFlowTimer?: ReturnType<typeof setTimeout>
   private advanceTimer?: ReturnType<typeof setTimeout>
 
   private readonly beats: Beat[]
@@ -136,6 +137,9 @@ export class RehearsalEngine {
 
   // -- lifecycle ------------------------------------------------------------
 
+  /** Starts the recognizer and enters the first beat. Rethrows a recognizer
+   *  start failure so the caller can show its error flow instead of landing the
+   *  user on a broken stage view. */
   async start(): Promise<void> {
     this.running = true
     try {
@@ -148,9 +152,8 @@ export class RehearsalEngine {
         },
       })
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e)
-      this.emit()
-      return
+      this.running = false
+      throw e
     }
     this.prefetchAhead(2) // warm the opening scene-partner lines
     this.goToPos(0)
@@ -180,6 +183,10 @@ export class RehearsalEngine {
     if (on && this.phase === 'scored') {
       this.clearTimers()
       this.advanceTimer = setTimeout(() => this.goToPos(this.pos + 1), 400)
+    } else if (!on && this.advanceTimer) {
+      // Turning it off must also cancel an advance that's already scheduled.
+      clearTimeout(this.advanceTimer)
+      this.advanceTimer = undefined
     }
   }
 
@@ -248,6 +255,7 @@ export class RehearsalEngine {
     this.transcript = ''
     this.score = undefined
     this.revealed = false
+    this.error = undefined
     this.resetProjection()
     this.phase = 'listening'
     this.deps.recognizer.setActive(true) // fresh capture session
@@ -290,7 +298,8 @@ export class RehearsalEngine {
       if (this.deps.settings.speakStageDirections && beat.text.trim()) {
         this.speak(beat.text, this.deps.narratorVoice, () => {}).then(
           () => this.afterStage(),
-          () => {},
+          // Narration failed (e.g. cloud voice) — keep the flow going regardless.
+          () => this.afterStage(),
         )
       } else {
         this.advanceTimer = setTimeout(() => this.afterStage(), 1100)
@@ -314,14 +323,25 @@ export class RehearsalEngine {
     this.speakingCharId = beat.characterId
     this.emit()
     const voice = this.deps.voiceMap.get(beat.characterId!) ?? this.deps.narratorVoice
-    this.deps.speaker.speakSegments(beatSegments(beat), voice, () => this.emit()).then(
-      () => {
-        if (this.running && this.phase === 'partner') this.goToPos(this.pos + 1)
-      },
-      () => {
-        /* aborted by a transition — ignore */
-      },
-    )
+    const advance = () => {
+      if (this.running && this.phase === 'partner') this.goToPos(this.pos + 1)
+    }
+    this.deps.speaker.speakSegments(beatSegments(beat), voice, () => this.emit()).then(advance, (e) => {
+      // Aborted by a transition (pause / next / setVoice) — nothing to do.
+      if ((e as { name?: string })?.name === 'AbortError') return
+      if (!this.running || this.phase !== 'partner') return
+      // A real generation failure (bad API key, offline, rate limit): surface
+      // the reason and fall back to the free system voice so the rehearsal is
+      // never silently frozen on a partner line.
+      this.error = e instanceof Error ? e.message : String(e)
+      this.emit()
+      const fallback: VoiceAssignment = { engine: 'webspeech', rate: voice.rate }
+      this.deps.speaker.speakSegments(beatSegments(beat), fallback, () => this.emit()).then(advance, (e2) => {
+        if ((e2 as { name?: string })?.name === 'AbortError') return
+        // Even the fallback failed (no speech synthesis at all) — keep the flow.
+        advance()
+      })
+    })
   }
 
   private afterStage(): void {
@@ -387,6 +407,7 @@ export class RehearsalEngine {
     this.clearTimers()
     this.deps.recognizer.setActive(false) // line accepted — stop listening
     this.phase = 'scored'
+    this.error = undefined // things are working again — drop any stale banner
     this.recordAttemptIfMyLine()
     this.emit()
     if (this.autoCue()) {
@@ -398,10 +419,6 @@ export class RehearsalEngine {
 
   private armTimers(): void {
     this.armStuckTimer()
-    if (this.keepFlowTimer) clearTimeout(this.keepFlowTimer)
-    if (this.deps.settings.keepFlowTimeoutMs > 0) {
-      this.keepFlowTimer = setTimeout(() => this.onKeepFlow(), this.deps.settings.keepFlowTimeoutMs)
-    }
   }
 
   private armStuckTimer(): void {
@@ -417,20 +434,9 @@ export class RehearsalEngine {
     }
   }
 
-  private onKeepFlow(): void {
-    // A long silence on the actor's own line is usually them gathering the
-    // words, or an intentional dramatic pause. Never auto-skip it — that both
-    // pressures a natural pause and would silently drop the line from the
-    // results count. Reveal the line as a prompt and wait; they finish it, or
-    // press "Next" to move on at their own pace.
-    this.revealed = true
-    if (this.phase === 'listening') this.phase = 'stuck'
-    this.emit()
-  }
-
   private clearTimers(): void {
-    for (const t of [this.stuckTimer, this.keepFlowTimer, this.advanceTimer]) if (t) clearTimeout(t)
-    this.stuckTimer = this.keepFlowTimer = this.advanceTimer = undefined
+    for (const t of [this.stuckTimer, this.advanceTimer]) if (t) clearTimeout(t)
+    this.stuckTimer = this.advanceTimer = undefined
   }
 
   // -- bookkeeping ----------------------------------------------------------
@@ -444,15 +450,21 @@ export class RehearsalEngine {
     if (!this.isMyLine()) return
     const beat = this.curBeat()!
     const next = this.buildAttempt(beat)
-    const last = this.attempts[this.attempts.length - 1]
-    if (last && last.beatId === beat.id) {
+    // One entry per line, however it was reached (retry, Prev navigation, …) —
+    // duplicates would inflate the summary's counts and averages.
+    const at = this.attemptIndexByBeat.get(beat.id)
+    if (at !== undefined) {
+      const prev = this.attempts[at]
       // Keep the best attempt for a line — never downgrade a pass on retry.
-      if (next.accuracy >= last.accuracy || (!last.passed && next.passed)) {
-        this.attempts[this.attempts.length - 1] = next
+      if (next.accuracy >= prev.accuracy || (!prev.passed && next.passed)) {
+        this.attempts[at] = next
       }
       return
     }
-    if (this.transcript || this.score) this.attempts.push(next)
+    if (this.transcript || this.score) {
+      this.attemptIndexByBeat.set(beat.id, this.attempts.length)
+      this.attempts.push(next)
+    }
   }
 
   private buildAttempt(beat: Beat): LineAttempt {
@@ -489,7 +501,6 @@ export class RehearsalEngine {
       totalBeats: total,
       beat,
       isMyLine,
-      speakingCharId: this.speakingCharId,
       transcript: this.transcript,
       score: this.score,
       revealed: this.revealed,

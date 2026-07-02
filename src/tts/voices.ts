@@ -59,11 +59,6 @@ export async function genderedPool(engine: TTSEngine): Promise<PoolVoice[]> {
   return [{ id: '' }]
 }
 
-/** Back-compat: just the ids of the engine's pool. */
-export async function voicePool(engine: TTSEngine): Promise<string[]> {
-  return (await genderedPool(engine)).map((v) => v.id)
-}
-
 export async function buildVoiceMap(
   characters: Character[],
   engine: TTSEngine,

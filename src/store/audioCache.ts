@@ -51,10 +51,21 @@ export async function getCachedAudio(key: string): Promise<Blob | null> {
   try {
     const cache = await caches.open(CACHE_NAME)
     const res = await cache.match(keyToUrl(key))
+    if (res) touchIndex(key) // refresh recency so eviction is LRU, not FIFO
     return res ? await res.blob() : null
   } catch {
     return memFallback.get(key) ?? null
   }
+}
+
+/** Move a key to the tail of the index (most recently used). */
+function touchIndex(key: string): void {
+  const index = loadIndex()
+  const at = index.findIndex((e) => e.key === key)
+  if (at < 0 || at === index.length - 1) return
+  const [entry] = index.splice(at, 1)
+  index.push(entry)
+  saveIndex(index)
 }
 
 export async function putCachedAudio(key: string, blob: Blob): Promise<void> {

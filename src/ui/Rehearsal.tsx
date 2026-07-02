@@ -17,6 +17,7 @@ import {
 } from '../lib/sections'
 import type { AppSettings } from '../store/settings'
 import { Speaker } from '../tts/speaker'
+import { warmupKokoro } from '../tts/kokoro'
 import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
 import { isPremiumEngine, type PremiumConfig } from '../tts/premium'
 import type { TTSVoice } from '../tts/webspeech'
@@ -54,8 +55,9 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
   useEffect(() => {
     if (!play || !myCharId) return
     let cancelled = false
+    const myName = play.characters.find((c) => c.id === myCharId)?.name ?? myCharId
     ;(async () => {
-      const saved = await loadSection(play.id, myCharId)
+      const saved = await loadSection(play.id, myName, myCharId)
       if (!cancelled) setSpec(saved ?? DEFAULT_SECTION)
     })()
     return () => {
@@ -105,11 +107,13 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         ? { engine: settings.tts, ...(settings.premium[settings.tts] ?? {}) }
         : null
       const speaker = new Speaker({ rate: settings.ttsRate, premium })
+      if (settings.tts === 'kokoro') void warmupKokoro().catch(() => {}) // pre-load so line 1 doesn't stall
       const voiceMap = await buildVoiceMap(play.characters, settings.tts, settings.ttsRate, myCharId)
       setVoiceAssignments(new Map(voiceMap))
       const narratorVoice = { engine: settings.tts, rate: settings.ttsRate }
       // Persist this section for one-click repeat rehearsal of the same scene.
-      void saveSection(play.id, myCharId, effSpec)
+      const myName = play.characters.find((c) => c.id === myCharId)?.name ?? myCharId
+      void saveSection(play.id, myName, effSpec)
       const engine = new RehearsalEngine({
         play,
         myCharacterId: myCharId,
@@ -126,9 +130,9 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         beatOrder: order,
       })
       engineRef.current = engine
-      setStarted(true)
       setLoadMsg('Requesting microphone…')
-      await engine.start()
+      await engine.start() // throws on recognizer failure → error flow below
+      setStarted(true)
     } catch (e) {
       teardown()
       setStarted(false)
@@ -839,10 +843,17 @@ function VoicePanel(props: {
   }
 
   return (
-    <div className="voice-panel" role="dialog" aria-label="Scene-partner voices">
+    <div
+      className="voice-panel"
+      role="dialog"
+      aria-label="Scene-partner voices"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') props.onClose()
+      }}
+    >
       <div className="voice-panel-head">
         <strong>Scene-partner voices</strong>
-        <button className="ghost" onClick={props.onClose}>
+        <button className="ghost" onClick={props.onClose} autoFocus>
           Done
         </button>
       </div>
@@ -858,7 +869,11 @@ function VoicePanel(props: {
                   {c.name}
                   {speakingCharId === c.id && <span className="speaking-dot" title="speaking now" />}
                 </span>
-                <select value={current} onChange={(e) => onChange(c.id, e.target.value || undefined)}>
+                <select
+                  value={current}
+                  aria-label={`Voice for ${c.name}`}
+                  onChange={(e) => onChange(c.id, e.target.value || undefined)}
+                >
                   {current === '' && (
                     <option value="" disabled>
                       Default voice

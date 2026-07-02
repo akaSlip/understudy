@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Route } from '../App'
 import type { Character, Play, VoiceAssignment } from '../types'
-import { mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
+import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
 import { extractText, needsExtraction } from '../lib/ingest'
 import { characterKey, uid } from '../lib/util'
 import { getPlay, savePlay } from '../store/playsRepo'
@@ -78,7 +78,13 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
 
   async function save(thenRehearse: boolean) {
     const now = Date.now()
-    const characters: Character[] = parsed.characters.map((c) => {
+    // parseScript mints fresh ids on every round-trip; re-adopt the existing
+    // play's character/beat ids where they still correspond, so remembered
+    // sections and anything else keyed by id survive an edit.
+    const { characters: stableChars, beats: stableBeats } = existing
+      ? adoptExistingIds(parsed.characters, parsed.beats, existing)
+      : { characters: parsed.characters, beats: parsed.beats }
+    const characters: Character[] = stableChars.map((c) => {
       const key = characterKey(c.name)
       const ov = overrides[key]
       const voice: VoiceAssignment | undefined =
@@ -92,8 +98,10 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
       title: title.trim() || parsed.title || 'Untitled play',
       author: author.trim() || undefined,
       characters,
-      beats: parsed.beats,
-      source: existing?.source ?? 'manual',
+      beats: stableBeats,
+      // A play the user has saved is theirs — never leave it tagged 'seed', or
+      // the next sample refresh would silently delete their edits.
+      source: existing && existing.source !== 'seed' ? existing.source : 'manual',
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     }
@@ -211,8 +219,8 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
         <aside className="cast-panel">
           <h3>Cast &amp; voices</h3>
           <p className="muted small">
-            Voices use the current free engine (<strong>{settings.tts}</strong>). Leave “Auto” to auto-cast distinct
-            voices. Delivery notes are saved for when you enable expressive premium voices.
+            Voices use the engine selected in Settings (<strong>{settings.tts}</strong>). Leave “Auto” to cast distinct,
+            gender-matched voices automatically. Delivery notes guide the expressive cloud voices.
           </p>
           {parsed.characters.length === 0 && <p className="muted">Characters appear here as you type.</p>}
           {parsed.characters.map((c) => {
@@ -221,7 +229,11 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
             return (
               <div key={c.id} className="cast-row">
                 <div className="cast-name">{c.name}</div>
-                <select value={ov.voiceId ?? ''} onChange={(e) => setOverride(key, { voiceId: e.target.value })}>
+                <select
+                  value={ov.voiceId ?? ''}
+                  aria-label={`Voice for ${c.name}`}
+                  onChange={(e) => setOverride(key, { voiceId: e.target.value })}
+                >
                   <option value="">Auto</option>
                   {voiceOptions.map((v) => (
                     <option key={v.id} value={v.id}>
@@ -233,6 +245,7 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
                   className="direction"
                   value={ov.direction ?? ''}
                   placeholder="delivery note (e.g. bitter, urgent)"
+                  aria-label={`Delivery note for ${c.name}`}
                   onChange={(e) => setOverride(key, { direction: e.target.value })}
                 />
               </div>

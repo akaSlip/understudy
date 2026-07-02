@@ -631,8 +631,15 @@ code {
   background: linear-gradient(180deg, var(--mine-grad), var(--surface));
 }
 .beat-card.partner .beat-text {
-  color: #cfd2dc;
+  color: var(--text);
+  opacity: 0.92;
 }
+button:focus-visible,
+[role='button']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .beat-role {
   font-size: 0.8rem;
   letter-spacing: 0.14em;
@@ -871,6 +878,9 @@ code {
   margin-top: 0.4rem;
 }
 @media (max-width: 620px) {
+  :root {
+    --controls-h: 64px;
+  }
   .controls-inner {
     gap: 0.3rem;
   }
@@ -1069,24 +1079,10 @@ legend {
 .import-error {
   color: var(--danger);
 }
-.spinner {
+.import-status .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  display: inline-block;
-  animation: spin 0.8s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 2.5s;
-  }
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  border-width: 2px;
 }
 
 /* Inline delivery directions on the teleprompter. */

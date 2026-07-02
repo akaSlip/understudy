@@ -27,12 +27,16 @@ const MODEL_IDS: Record<'tiny' | 'base', string> = {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let transcriber: any = null
 let loading: Promise<void> | null = null
+let currentModel: 'tiny' | 'base' = 'tiny'
+let currentDevice = 'wasm'
+let retriedOnWasm = false
 
 const post = (m: OutMsg) => (self as unknown as Worker).postMessage(m)
 
-async function load(model: 'tiny' | 'base'): Promise<void> {
+async function load(model: 'tiny' | 'base', forceWasm = false): Promise<void> {
   if (transcriber) return
   if (loading) return loading
+  currentModel = model
   loading = (async () => {
     const modelId = MODEL_IDS[model]
     const progress_callback: ProgressCallback = (p: any) => {
@@ -42,7 +46,7 @@ async function load(model: 'tiny' | 'base'): Promise<void> {
     // "MatMulNBits Missing required scale" session-creation failure on ORT-web
     // WASM (Firefox and any no-WebGPU browser). fp32 is verified to load and
     // run on WASM. WebGPU (Chrome/Edge) also runs fp32 on the GPU.
-    const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator
+    const hasWebGPU = !forceWasm && typeof navigator !== 'undefined' && 'gpu' in navigator
     const attempts: Array<{ device: string; dtype: string }> = hasWebGPU
       ? [
           { device: 'webgpu', dtype: 'fp32' },
@@ -57,6 +61,7 @@ async function load(model: 'tiny' | 'base'): Promise<void> {
           dtype: a.dtype as any,
           progress_callback,
         })
+        currentDevice = a.device
         post({ type: 'ready', device: a.device })
         return
       } catch (e) {
@@ -65,7 +70,17 @@ async function load(model: 'tiny' | 'base'): Promise<void> {
     }
     throw lastErr
   })()
-  return loading
+  try {
+    return await loading
+  } finally {
+    loading = null // allow a later forced-WASM rebuild
+  }
+}
+
+async function run(audio: Float32Array): Promise<string> {
+  // English-only (.en) models reject `language`/`task` — omit them.
+  const out: any = await transcriber(audio)
+  return (Array.isArray(out) ? out.map((o: any) => o.text).join(' ') : out?.text ?? '').trim()
 }
 
 async function transcribe(id: number, audio: Float32Array): Promise<void> {
@@ -74,11 +89,22 @@ async function transcribe(id: number, audio: Float32Array): Promise<void> {
     return
   }
   try {
-    // English-only (.en) models reject `language`/`task` — omit them.
-    const out: any = await transcriber(audio)
-    const text = (Array.isArray(out) ? out.map((o: any) => o.text).join(' ') : out?.text ?? '').trim()
-    post({ type: 'result', id, text })
+    post({ type: 'result', id, text: await run(audio) })
   } catch (e) {
+    // WebGPU can load fine and still fail at inference time (driver quirks).
+    // Rebuild once on WASM and retry, so one bad device doesn't fail every line.
+    if (currentDevice === 'webgpu' && !retriedOnWasm) {
+      retriedOnWasm = true
+      try {
+        transcriber = null
+        await load(currentModel, true)
+        post({ type: 'result', id, text: await run(audio) })
+        return
+      } catch (e2) {
+        post({ type: 'error', id, message: e2 instanceof Error ? e2.message : String(e2) })
+        return
+      }
+    }
     post({ type: 'error', id, message: e instanceof Error ? e.message : String(e) })
   }
 }

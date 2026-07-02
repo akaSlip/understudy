@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PremiumEngine } from '../types'
 import { webSpeechSupported } from '../audio/webSpeechRecognizer'
 import { compatibilityReport, detectCapabilities } from '../lib/capabilities'
@@ -69,6 +69,7 @@ export function Settings() {
           <label className="opt">
             <input
               type="radio"
+              name="recognizer"
               checked={settings.recognizer === 'whisper'}
               onChange={() => updateSettings({ recognizer: 'whisper' })}
             />
@@ -93,6 +94,7 @@ export function Settings() {
           <label className="opt">
             <input
               type="radio"
+              name="recognizer"
               checked={settings.recognizer === 'webspeech'}
               disabled={!webSpeechOk}
               onChange={() => updateSettings({ recognizer: 'webspeech' })}
@@ -108,6 +110,7 @@ export function Settings() {
           <label className="opt">
             <input
               type="radio"
+              name="tts"
               checked={settings.tts === 'webspeech'}
               disabled={!synthOk}
               onChange={() => updateSettings({ tts: 'webspeech' })}
@@ -119,6 +122,7 @@ export function Settings() {
           <label className="opt">
             <input
               type="radio"
+              name="tts"
               checked={settings.tts === 'kokoro'}
               onChange={() => updateSettings({ tts: 'kokoro' })}
             />
@@ -133,7 +137,7 @@ export function Settings() {
           </p>
           {(['elevenlabs', 'openai', 'azure', 'gemini'] as PremiumEngine[]).map((eng) => (
             <label className="opt" key={eng}>
-              <input type="radio" checked={settings.tts === eng} onChange={() => updateSettings({ tts: eng })} />
+              <input type="radio" name="tts" checked={settings.tts === eng} onChange={() => updateSettings({ tts: eng })} />
               <span>
                 <strong>{ENGINE_INFO[eng].label}</strong>
                 {settings.premium[eng]?.apiKey ? ' — key set ✓' : ' — needs a key'}
@@ -143,6 +147,7 @@ export function Settings() {
 
           {premiumEngine && (
             <PremiumVoiceConfig
+              key={premiumEngine}
               engine={premiumEngine}
               cfg={settings.premium[premiumEngine] ?? {}}
               rate={settings.ttsRate}
@@ -238,20 +243,6 @@ export function Settings() {
               step={500}
               value={settings.stuckTimeoutMs}
               onChange={(e) => updateSettings({ stuckTimeoutMs: Number(e.target.value) })}
-            />
-          </label>
-          <label className="range">
-            <span>
-              Reveal the whole line if I stay silent for:{' '}
-              {settings.keepFlowTimeoutMs === 0 ? 'off' : (settings.keepFlowTimeoutMs / 1000).toFixed(0) + 's'}
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={20000}
-              step={1000}
-              value={settings.keepFlowTimeoutMs}
-              onChange={(e) => updateSettings({ keepFlowTimeoutMs: Number(e.target.value) })}
             />
           </label>
         </fieldset>
@@ -361,11 +352,24 @@ function PremiumVoiceConfig(props: {
   const { engine, cfg, rate, onPatch } = props
   const info = ENGINE_INFO[engine]
   const [test, setTest] = useState<'idle' | 'testing' | 'ok' | string>('idle')
+  const speakerRef = useRef<Speaker | null>(null)
+
+  // A changed key/voice invalidates a previous "Sounds good ✓".
+  useEffect(() => {
+    setTest('idle')
+  }, [cfg.apiKey, cfg.region, cfg.voiceId, cfg.proxyUrl])
+
+  // Stop any test playback when the panel unmounts or the engine changes.
+  useEffect(() => {
+    return () => speakerRef.current?.stop()
+  }, [])
 
   async function testVoice() {
     setTest('testing')
     try {
+      speakerRef.current?.stop() // never overlap two test playbacks
       const speaker = new Speaker({ rate, premium: { engine, ...cfg } })
+      speakerRef.current = speaker
       await speaker.speak('Hello — this is your scene partner, ready to rehearse.', {
         engine,
         voiceId: cfg.voiceId,

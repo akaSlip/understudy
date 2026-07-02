@@ -93,8 +93,11 @@ export class WhisperRecognizer implements Recognizer {
   }
 
   async start(handlers: RecognizerHandlers): Promise<void> {
-    this.handlers = handlers
+    // Install handlers only after init: a model-load failure then surfaces once
+    // (as this rejection) instead of also echoing through the worker's
+    // persistent error listener.
     await this.init()
+    this.handlers = handlers
     this.vad = new MicVAD({
       silenceMs: this.opts.endSilenceMs,
       onSpeechStart: () => handlers.onSpeechStart?.(),
@@ -127,6 +130,7 @@ export class WhisperRecognizer implements Recognizer {
 
   stop(): Promise<void> {
     this.active = false
+    this.session++ // invalidate any in-flight transcription at the source
     this.vad?.stop()
     this.vad = null
     this.handlers = null

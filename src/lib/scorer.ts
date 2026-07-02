@@ -75,6 +75,11 @@ export function scoreLine(target: string, transcript: string, opts: ScoreOptions
   const accuracy = credit / N
   // Lenient WER: accepted "near" tokens are not counted as errors.
   const wer = Math.min(1, (al.subs + al.dels + al.ins) / N)
+  // Pass/fail counts accepted near-misses (homophones) at FULL credit —
+  // otherwise a short line delivered perfectly as a homophone ("There!" heard
+  // "their", 0.7 credit) could never clear the threshold. The displayed
+  // accuracy keeps the graded 0.7 so the actor still sees the difference.
+  const passFraction = (al.matched + al.near) / N
 
   return {
     accuracy,
@@ -82,6 +87,6 @@ export function scoreLine(target: string, transcript: string, opts: ScoreOptions
     words,
     extras,
     transcript,
-    passed: accuracy >= passThreshold,
+    passed: passFraction >= passThreshold,
   }
 }

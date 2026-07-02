@@ -32,7 +32,10 @@ export function splitDirections(text: string): { plain: string; segments: LineSe
   let curDir: string | undefined
   const flush = () => {
     const clean = curText.replace(/\s+/g, ' ').trim()
-    if (clean) segments.push(curDir ? { text: clean, direction: curDir } : { text: clean })
+    if (clean) {
+      segments.push(curDir ? { text: clean, direction: curDir } : { text: clean })
+      curDir = undefined // consumed — only a direction with NO text stays pending
+    }
     curText = ''
   }
   let m: RegExpExecArray | null
@@ -50,6 +53,13 @@ export function splitDirections(text: string): { plain: string; segments: LineSe
   }
   curText += text.slice(cursor)
   flush()
+  // A trailing direction with no words after it — "Goodbye. (sadly)" — would
+  // otherwise be dropped AND left in the spoken text. Attach it to the last
+  // segment instead so it still colours the delivery.
+  if (curDir && segments.length) {
+    const last = segments[segments.length - 1]
+    last.direction = last.direction ? `${last.direction}, ${curDir}` : curDir
+  }
   const plain = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim()
   return { plain, segments }
 }
@@ -67,6 +77,17 @@ export function beatSegments(beat: Beat): LineSegment[] {
 export function applySegments(beat: Beat): Beat {
   if (beat.kind !== 'dialogue') return beat
   const { plain, segments } = splitDirections(beat.text)
+  // A line that is ONLY a direction — "(bewildered)" with no words — must not
+  // remain as scoreable/speakable text; treat it as the line's parenthetical.
+  if (!plain && !segments.length) {
+    const dir = beat.text.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (dir && looksLikeDirection(dir)) {
+      beat.parenthetical = beat.parenthetical || dir
+      beat.text = ''
+      delete beat.segments
+      return beat
+    }
+  }
   const hasInline = segments.length > 1 || segments.some((s) => s.direction)
   if (!hasInline) {
     delete beat.segments

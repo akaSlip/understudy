@@ -1,14 +1,19 @@
 // Remembers the last rehearsed section per (play, character) so returning to a
 // scene is one click. Stores the high-level SectionSpec (mode + params, by beat
 // / heading id) so it survives edits; resolveSection falls back gracefully when
-// a referenced id no longer exists. Understands the legacy {startBeatId,endBeatId}
-// shape saved by earlier builds and reads it as a custom range.
+// a referenced id no longer exists.
+//
+// Keyed by the character's NAME (normalised), not their id — character ids can
+// be reminted when a play is re-imported, but the name is what the actor picks.
+// Reads fall back to the legacy id-based keys saved by earlier builds.
 
 import type { SectionSpec } from '../lib/sections'
+import { characterKey } from '../lib/util'
 import { db } from './db'
 
-const key = (playId: string, characterId: string) => `section:${playId}:${characterId}`
-const legacyKey = (playId: string, characterId: string) => `range:${playId}:${characterId}`
+const key = (playId: string, characterName: string) => `section:${playId}:${characterKey(characterName)}`
+const legacyIdKey = (playId: string, characterId: string) => `section:${playId}:${characterId}`
+const legacyRangeKey = (playId: string, characterId: string) => `range:${playId}:${characterId}`
 
 interface LegacyRange {
   startBeatId: string
@@ -26,11 +31,17 @@ function normalize(value: unknown): SectionSpec | null {
   return null
 }
 
-export async function loadSection(playId: string, characterId: string): Promise<SectionSpec | null> {
-  const row = (await db.meta.get(key(playId, characterId))) ?? (await db.meta.get(legacyKey(playId, characterId)))
+export async function loadSection(
+  playId: string,
+  characterName: string,
+  legacyCharacterId?: string,
+): Promise<SectionSpec | null> {
+  const row =
+    (await db.meta.get(key(playId, characterName))) ??
+    (legacyCharacterId ? (await db.meta.get(legacyIdKey(playId, legacyCharacterId))) ?? (await db.meta.get(legacyRangeKey(playId, legacyCharacterId))) : undefined)
   return normalize(row?.value)
 }
 
-export async function saveSection(playId: string, characterId: string, spec: SectionSpec): Promise<void> {
-  await db.meta.put({ key: key(playId, characterId), value: spec })
+export async function saveSection(playId: string, characterName: string, spec: SectionSpec): Promise<void> {
+  await db.meta.put({ key: key(playId, characterName), value: spec })
 }

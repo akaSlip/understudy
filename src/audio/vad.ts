@@ -53,7 +53,10 @@ export class MicVAD {
   async start(): Promise<void> {
     this.stopped = false
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      // AGC would continuously normalise loudness — flattening exactly the
+      // signal projection coaching measures — so it's off. Echo cancellation
+      // stays on so the scene partner's TTS doesn't bleed into capture.
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
     })
     // If we were stopped/disposed while awaiting the mic permission, release it.
     if (this.stopped) {
@@ -68,7 +71,13 @@ export class MicVAD {
     if (this.ctx.state === 'suspended') await this.ctx.resume()
 
     this.source = this.ctx.createMediaStreamSource(this.stream)
-    this.processor = this.ctx.createScriptProcessor(4096, 1, 1)
+    // Aim for ~64 ms frames regardless of the ACTUAL sample rate (browsers may
+    // ignore the 16 kHz request) so endpointing granularity and the mic-meter
+    // refresh don't silently change per device. Must be a power of two.
+    const wanted = this.ctx.sampleRate * 0.064
+    let bufferSize = 256
+    while (bufferSize < wanted && bufferSize < 16384) bufferSize *= 2
+    this.processor = this.ctx.createScriptProcessor(bufferSize, 1, 1)
     this.sink = this.ctx.createGain()
     this.sink.gain.value = 0 // silent — we only want the processing callback
 

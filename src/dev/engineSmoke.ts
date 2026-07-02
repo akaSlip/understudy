@@ -59,7 +59,7 @@ const speaker = {
 }
 
 let last: RehearsalState = {} as RehearsalState
-const settings = { ...DEFAULT_SETTINGS, autoAdvance: false, stuckTimeoutMs: 0, keepFlowTimeoutMs: 0 }
+const settings = { ...DEFAULT_SETTINGS, autoAdvance: false, stuckTimeoutMs: 0 }
 
 const engine = new RehearsalEngine({
   play,
@@ -261,10 +261,10 @@ await tick()
 check('non-contiguous finishes after last cue', l4.phase === 'done', l4.phase)
 check('recorded exactly my 2 lines', l4.attempts.length === 2, l4.attempts.length)
 
-// --- keep-flow patience (protects intentional pauses) ---------------------
-console.log('— keep-flow patience —')
+// --- stuck patience (protects intentional pauses) --------------------------
+console.log('— stuck patience —')
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
-async function runKeepFlow(feedPartial: boolean): Promise<RehearsalState> {
+async function runStuck(feedPartial: boolean): Promise<RehearsalState> {
   const p: Play = {
     id: 'kf',
     title: 'kf',
@@ -286,7 +286,7 @@ async function runKeepFlow(feedPartial: boolean): Promise<RehearsalState> {
     recognizer: r as any,
     voiceMap: new Map(),
     narratorVoice: { engine: 'webspeech' },
-    settings: { ...settings, autoAdvance: true, stuckTimeoutMs: 0, keepFlowTimeoutMs: 40 },
+    settings: { ...settings, autoAdvance: true, stuckTimeoutMs: 40 },
     onUpdate: (s) => { st = s },
   })
   await eng.start()
@@ -295,13 +295,14 @@ async function runKeepFlow(feedPartial: boolean): Promise<RehearsalState> {
     hh!.onFinal('one two') // began the line, then falls silent (a pause)
     await tick()
   }
-  await wait(90) // let the keep-flow timer fire
+  await wait(90) // let the stuck timer fire
   return st
 }
-const midPause = await runKeepFlow(true)
-check('keep-flow does NOT skip a line already in progress', midPause.phase !== 'done' && midPause.attempts.length === 0, midPause.phase)
-const blank = await runKeepFlow(false)
-check('keep-flow reveals a silent line and waits (never auto-skips the actor’s line)', blank.phase === 'stuck' && blank.attempts.length === 0, blank.phase)
+const midPause = await runStuck(true)
+check('a pause mid-line never skips the line', midPause.phase !== 'done' && midPause.attempts.length === 0, midPause.phase)
+check('a pause mid-line reveals the line as a prompt', midPause.revealed === true, midPause)
+const blank = await runStuck(false)
+check('a silent line reveals and waits (never auto-skips)', blank.phase === 'stuck' && blank.attempts.length === 0, blank.phase)
 
 // --- auto-cue toggle ------------------------------------------------------
 console.log('— auto-cue toggle —')
@@ -345,7 +346,7 @@ const eng6 = new RehearsalEngine({
   recognizer: rec6 as any,
   voiceMap: new Map(),
   narratorVoice: { engine: 'webspeech' },
-  settings: { ...settings, autoAdvance: true, keepFlowTimeoutMs: 0 },
+  settings: { ...settings, autoAdvance: true },
   onUpdate: (s) => { l6 = s },
 })
 await eng6.start()
@@ -381,6 +382,97 @@ console.log('— voice change —')
   check('setVoice updates an existing character voice', vm.get('B')?.voiceId === 'new', vm.get('B'))
   eng.setVoice('B', undefined)
   check('setVoice can clear back to default', vm.get('B')?.voiceId === undefined)
+}
+
+// --- audit regressions ------------------------------------------------------
+console.log('— audit regressions —')
+function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean; partnerFails?: boolean } = {}) {
+  const p: Play = {
+    id: 'ar', title: 'ar', characters: play.characters,
+    beats: [
+      { id: 'L1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
+      { id: 'P1', kind: 'dialogue', characterId: 'B', text: 'partner line' },
+      { id: 'L2', kind: 'dialogue', characterId: 'A', text: 'delta epsilon zeta' },
+    ],
+    source: 'manual', createdAt: 0, updatedAt: 0,
+  }
+  let hh: { onFinal: (t: string) => void; onError: (e: Error) => void } | undefined
+  const r = { ...recognizer, async start(h: { onFinal: (t: string) => void; onError: (e: Error) => void }) { hh = h } }
+  const spoken: string[] = []
+  const sp = {
+    async speak() {},
+    speakSegments(_segs: { text: string }[], voice: { engine: string }) {
+      spoken.push(voice.engine)
+      if (opts.partnerFails && voice.engine !== 'webspeech') return Promise.reject(new Error('cloud voice 401'))
+      return opts.partnerNeverEnds ? new Promise<void>(() => {}) : Promise.resolve()
+    },
+    stop() {}, async pregenerate() {}, async pregenerateSegments() {},
+  }
+  let st: RehearsalState = {} as RehearsalState
+  const eng = new RehearsalEngine({
+    play: p, myCharacterId: 'A',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    speaker: sp as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognizer: r as any,
+    voiceMap: new Map([['B', { engine: 'elevenlabs' as const, rate: 1 }]]),
+    narratorVoice: { engine: 'webspeech' },
+    settings: { ...settings, autoAdvance: opts.autoAdvance ?? false },
+    onUpdate: (s) => { st = s },
+  })
+  return { eng, say: (x: string) => hh!.onFinal(x), err: (e: Error) => hh!.onError(e), state: () => st, spoken }
+}
+
+{
+  // C1: a failing cloud partner voice must surface the error, fall back to the
+  // system voice, and never freeze the session.
+  const { eng, say, state, spoken } = mkAuditEngine({ autoAdvance: true, partnerFails: true })
+  await eng.start(); await tick()
+  say('alpha beta gamma')
+  await new Promise((r) => setTimeout(r, 900)) // auto-advance → P1 fails → fallback
+  check('C1: failed partner TTS falls back to the system voice', spoken.includes('webspeech'), spoken)
+  check('C1: session advanced past the failed partner line', state().beat?.id === 'L2', state().beat?.id)
+  check('C1: failure reason surfaced in state.error', typeof state().error === 'string', state().error)
+  eng.dispose()
+}
+
+{
+  // H1: revisiting a line via Prev must not duplicate its attempt entry.
+  const { eng, say, state } = mkAuditEngine({ partnerNeverEnds: true })
+  await eng.start(); await tick()
+  say('alpha beta gamma'); await tick()
+  eng.next(); await tick() // → P1 (never ends)
+  eng.next(); await tick() // → L2
+  say('delta epsilon zeta'); await tick()
+  eng.prev(); await tick() // → P1
+  eng.prev(); await tick() // → L1
+  say('alpha beta gamma'); await tick()
+  const ids = state().attempts.map((a) => a.beatId)
+  check('H1: re-visited line keeps ONE attempt entry', ids.filter((i) => i === 'L1').length === 1, ids)
+  check('H1: passed count cannot exceed true line count', state().attempts.filter((a) => a.passed).length <= 2)
+  eng.dispose()
+}
+
+{
+  // M1: turning auto-cue OFF cancels an already-scheduled advance.
+  const { eng, say, state } = mkAuditEngine({ autoAdvance: true, partnerNeverEnds: true })
+  await eng.start(); await tick()
+  say('alpha beta gamma'); await tick() // scored → advance scheduled (750 ms)
+  eng.setAutoCue(false)
+  await new Promise((r) => setTimeout(r, 900))
+  check('M1: auto-cue off cancels the pending advance', state().beat?.id === 'L1', state().beat?.id)
+  eng.dispose()
+}
+
+{
+  // H2: a transient recognizer error clears once the actor passes a line.
+  const { eng, say, err, state } = mkAuditEngine({ partnerNeverEnds: true })
+  await eng.start(); await tick()
+  err(new Error('transient blip')); await tick()
+  check('H2: error shown when it happens', state().error === 'transient blip')
+  say('alpha beta gamma'); await tick()
+  check('H2: error cleared once a line passes', state().error === undefined, state().error)
+  eng.dispose()
 }
 
 console.log(`\n${fail === 0 ? 'ENGINE OK' : fail + ' FAILURE(S)'}`)

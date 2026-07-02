@@ -273,6 +273,9 @@ export function mergeConsecutiveDialogue(beats: Beat[]): Beat[] {
       last.text = `${last.text} ${b.text}`.replace(/\s+/g, ' ').trim()
       if (last.segments || b.segments) {
         last.segments = [...beatSegments(last), ...beatSegments(b)]
+        // beatSegments folded any whole-line parenthetical into the first
+        // segment's direction — drop the original so it isn't shown twice.
+        last.parenthetical = undefined
       }
     } else {
       out.push({ ...b })
@@ -283,6 +286,46 @@ export function mergeConsecutiveDialogue(beats: Beat[]): Beat[] {
 
 function action(text: string): Beat {
   return { id: uid('b_'), kind: 'action', text }
+}
+
+/** Re-adopt an existing play's character and beat ids onto a freshly re-parsed
+ *  script. parseScript mints new ids on every round-trip; without this, saving
+ *  a play (even unedited) would orphan everything keyed by those ids — e.g. the
+ *  remembered rehearsal section. Characters match by name; beats match by
+ *  (kind, character, text), consumed first-come so repeated lines pair up in
+ *  order. Edited beats simply keep their new ids. */
+export function adoptExistingIds(
+  characters: Character[],
+  beats: Beat[],
+  existing: { characters: Character[]; beats: Beat[] },
+): { characters: Character[]; beats: Beat[] } {
+  // Characters: reuse the existing id for the same (normalised) name.
+  const existingCharByKey = new Map(existing.characters.map((c) => [characterKey(c.name), c]))
+  const charIdRemap = new Map<string, string>()
+  const outChars = characters.map((c) => {
+    const prev = existingCharByKey.get(characterKey(c.name))
+    if (!prev) return c
+    charIdRemap.set(c.id, prev.id)
+    return { ...c, id: prev.id }
+  })
+
+  // Beats: reuse ids for identical (kind | character | text) beats, in order.
+  const beatKey = (kind: string, characterId: string | undefined, text: string) =>
+    `${kind}|${characterId ?? ''}|${text.replace(/\s+/g, ' ').trim()}`
+  const pool = new Map<string, string[]>()
+  for (const b of existing.beats) {
+    const k = beatKey(b.kind, b.characterId, b.text)
+    const ids = pool.get(k) ?? []
+    ids.push(b.id)
+    pool.set(k, ids)
+  }
+  const outBeats = beats.map((b) => {
+    const characterId = b.characterId ? (charIdRemap.get(b.characterId) ?? b.characterId) : undefined
+    const ids = pool.get(beatKey(b.kind, characterId, b.text))
+    const id = ids?.shift() ?? b.id
+    return { ...b, id, characterId }
+  })
+  return { characters: outChars, beats: outBeats }
 }
 
 // ---------------------------------------------------------------------------
