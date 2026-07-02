@@ -1,0 +1,34 @@
+{
+  "name": "understudy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline-first line-rehearsal PWA: a TTS scene partner that performs the other characters, waits for your lines, and scores them in real time.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "dexie": "^4.0.11",
+    "double-metaphone": "^2.0.1",
+    "kokoro-js": "^1.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "sharp": "^0.35.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-pwa": "^0.21.1"
+  },
+  "allowScripts": {
+    "sharp@0.34.5": true,
+    "sharp@0.35.2": true
+  }
+}
