@@ -69,8 +69,10 @@ export default defineConfig({
     format: 'es',
   },
   optimizeDeps: {
-    // These pull large WASM/ONNX runtimes; let them resolve lazily.
-    exclude: ['@huggingface/transformers', 'kokoro-js', 'pdfjs-dist', 'tesseract.js'],
+    // These pull large WASM/ONNX runtimes; let them resolve lazily. NOTE:
+    // tesseract.js must NOT be excluded — it's CommonJS, and excluding it makes
+    // dev serve raw CJS to the browser ("require is not defined" on import).
+    exclude: ['@huggingface/transformers', 'kokoro-js', 'pdfjs-dist'],
   },
   build: {
     target: 'es2022',

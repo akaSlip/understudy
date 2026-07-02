@@ -53,6 +53,7 @@ async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> 
   const data = new Uint8Array(await file.arrayBuffer())
   const doc = await pdfjs.getDocument({ data }).promise
   const pages: string[] = []
+  let ocrError: unknown = null
   try {
     for (let n = 1; n <= doc.numPages; n++) {
       onProgress?.({ stage: 'reading', page: n, pages: doc.numPages, message: `Reading page ${n} of ${doc.numPages}…` })
@@ -60,17 +61,27 @@ async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> 
       const content = await page.getTextContent()
       let text = reconstructLines(content.items as TextItem[])
       if (text.replace(/\s/g, '').length < 8) {
-        // No embedded text — this page is a scan; render it and OCR it.
+        // No embedded text — this page is probably a scan (or a cover image);
+        // try OCR, but never let one bad page kill a PDF whose OTHER pages have
+        // perfectly good selectable text.
         onProgress?.({ stage: 'ocr', page: n, pages: doc.numPages, message: `Page ${n} looks scanned — running OCR…` })
-        text = await ocrPdfPage(page, onProgress, n, doc.numPages)
+        try {
+          text = await ocrPdfPage(page, onProgress, n, doc.numPages)
+        } catch (e) {
+          ocrError = e
+          text = ''
+        }
       }
       pages.push(text)
     }
   } finally {
     await doc.destroy()
   }
+  const combined = pages.join('\n\n')
+  // Only fail the import when OCR was the ONLY possible source of text.
+  if (ocrError && !combined.trim()) throw ocrError instanceof Error ? ocrError : new Error(String(ocrError))
   onProgress?.({ stage: 'done', message: 'Finished reading.' })
-  return pages.join('\n\n')
+  return combined
 }
 
 export interface TextItem {
