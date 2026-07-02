@@ -5,8 +5,10 @@
 
 import { mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
 import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
+import { guessGender } from '../lib/gender'
 import { isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
+import { buildVoiceMap } from '../tts/voices'
 import { SEED_PLAYS, buildSeedPlay } from '../lib/seed'
 
 let failures = 0
@@ -156,6 +158,32 @@ console.log('\n— scorer fixes —')
 const dash = scoreLine('Well — no.', 'well no')
 check('punctuation-only word not marked missing', dash.words.every((w) => w.status !== 'missing'), dash.words.map((w) => `${w.raw}:${w.status}`))
 check('em-dash line scores 100%', dash.accuracy === 1, dash.accuracy)
+
+console.log('\n— voice casting —')
+check('guess: honorific "Lady Bracknell" → f', guessGender('Lady Bracknell') === 'f')
+check('guess: "Mr Worthing" → m', guessGender('Mr. Worthing') === 'm')
+check('guess: name "Algernon" → m', guessGender('Algernon') === 'm')
+check('guess: name "Gwendolen" → f', guessGender('Gwendolen') === 'f')
+check('guess: role "Nurse" → f', guessGender('Nurse') === 'f')
+check('guess: role "King" → m', guessGender('King') === 'm')
+check('guess: unknown → undefined', guessGender('Xyzzq Blort') === undefined)
+
+await (async () => {
+  const chars = [
+    { id: 'a', name: 'Lady Bracknell' },
+    { id: 'b', name: 'Algernon' },
+    { id: 'c', name: 'Jack' },
+    { id: 'd', name: 'Cecily' },
+  ] as unknown as import('../types').Character[]
+  const map = await buildVoiceMap(chars, 'kokoro', 1, 'c') // Jack is the actor
+  check('actor character excluded from casting', !map.has('c'))
+  const ids = [...map.values()].map((v) => v.voiceId)
+  check('every partner voice is unique', ids.every(Boolean) && new Set(ids).size === ids.length, ids)
+  const g = (vid?: string) => vid?.[1] // kokoro id shape: af_/am_/bf_/bm_
+  check('Lady Bracknell cast as a female voice', g(map.get('a')?.voiceId) === 'f', map.get('a')?.voiceId)
+  check('Algernon cast as a male voice', g(map.get('b')?.voiceId) === 'm', map.get('b')?.voiceId)
+  check('Cecily cast as a female voice', g(map.get('d')?.voiceId) === 'f', map.get('d')?.voiceId)
+})()
 
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILURE(S)'}`)
 if (failures > 0 && typeof process !== 'undefined') process.exitCode = 1

@@ -183,6 +183,21 @@ export class RehearsalEngine {
     }
   }
 
+  /** Reassign a character's scene-partner voice mid-rehearsal. If that character
+   *  is speaking right now, the line restarts in the new voice; upcoming lines
+   *  are re-warmed. */
+  setVoice(characterId: string, voiceId?: string): void {
+    const base = this.deps.voiceMap.get(characterId)
+    const engine = base?.engine ?? this.deps.narratorVoice.engine
+    const rate = base?.rate ?? this.deps.narratorVoice.rate
+    this.deps.voiceMap.set(characterId, { ...base, engine, rate, voiceId })
+    if (this.phase === 'partner' && this.speakingCharId === characterId) {
+      this.goToPos(this.pos) // re-speak the current line with the new voice
+    } else {
+      this.prefetchAhead(2)
+    }
+  }
+
   // -- manual controls ------------------------------------------------------
 
   pause(): void {

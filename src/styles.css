@@ -1098,3 +1098,63 @@ legend {
   opacity: 0.9;
   white-space: nowrap;
 }
+
+/* --- In-rehearsal voice casting panel ----------------------------------- */
+.voice-panel {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--controls-h, 84px) + env(safe-area-inset-bottom, 0px) + 12px);
+  width: min(30rem, calc(100vw - 1.5rem));
+  max-height: 50vh;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  padding: 0.9rem 1rem;
+  z-index: 40;
+}
+.voice-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.voice-list {
+  list-style: none;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.voice-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.voice-list li.speaking {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+.voice-char {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+.voice-list select {
+  flex: 1 1 auto;
+  max-width: 60%;
+  padding: 0.35rem 0.4rem;
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.voice-list option:disabled {
+  color: var(--muted);
+}

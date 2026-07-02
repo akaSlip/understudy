@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import type { Route } from '../App'
-import type { Beat, Character, Play } from '../types'
+import type { Beat, Character, Play, TTSEngine, VoiceAssignment } from '../types'
 import { createRecognizer } from '../audio/recognizerFactory'
 import type { Recognizer } from '../audio/recognizer'
 import { compatibilityReport, detectCapabilities, hasBlockingIssue, type CompatIssue } from '../lib/capabilities'
@@ -18,6 +18,8 @@ import {
 import type { AppSettings } from '../store/settings'
 import { Speaker } from '../tts/speaker'
 import { buildVoiceMap } from '../tts/voices'
+import { KOKORO_VOICES } from '../tts/kokoro'
+import { listWebSpeechVoices, type TTSVoice } from '../tts/webspeech'
 import { RehearsalEngine, type RehearsalState } from '../rehearsal/engine'
 import { CompatBanner } from './CompatBanner'
 import { useApp } from './useApp'
@@ -33,6 +35,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
   const [loadMsg, setLoadMsg] = useState('')
   const [state, setState] = useState<RehearsalState | null>(null)
   const [micLevel, setMicLevel] = useState(0)
+  const [voiceAssignments, setVoiceAssignments] = useState<Map<string, VoiceAssignment>>(new Map())
 
   const engineRef = useRef<RehearsalEngine | null>(null)
   const recognizerRef = useRef<Recognizer | null>(null)
@@ -99,7 +102,8 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         setLoadMsg(`Loading speech model… ${p.progress != null ? Math.round(p.progress * 100) + '%' : ''}`),
       )
       const speaker = new Speaker({ rate: settings.ttsRate, premium: null })
-      const voiceMap = await buildVoiceMap(play.characters, settings.tts, settings.ttsRate)
+      const voiceMap = await buildVoiceMap(play.characters, settings.tts, settings.ttsRate, myCharId)
+      setVoiceAssignments(new Map(voiceMap))
       const narratorVoice = { engine: settings.tts, rate: settings.ttsRate }
       // Persist this section for one-click repeat rehearsal of the same scene.
       void saveSection(play.id, myCharId, effSpec)
@@ -200,6 +204,17 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
       settings={settings}
       micLevel={micLevel}
       engine={engineRef.current!}
+      myCharId={myCharId}
+      voiceAssignments={voiceAssignments}
+      onChangeVoice={(charId, voiceId) => {
+        engineRef.current?.setVoice(charId, voiceId)
+        setVoiceAssignments((prev) => {
+          const next = new Map(prev)
+          const base = next.get(charId)
+          next.set(charId, { engine: settings.tts, rate: settings.ttsRate, ...base, voiceId })
+          return next
+        })
+      }}
       onStop={() => engineRef.current?.endSession()}
       onExit={() => go({ view: 'library' })}
     />
@@ -469,12 +484,16 @@ function RunningView(props: {
   settings: AppSettings
   micLevel: number
   engine: RehearsalEngine
+  myCharId: string
+  voiceAssignments: Map<string, VoiceAssignment>
+  onChangeVoice: (characterId: string, voiceId?: string) => void
   onStop: () => void
   onExit: () => void
 }) {
   const { play, state, settings, engine, micLevel } = props
   const nameById = useMemo(() => new Map(play.characters.map((c) => [c.id, c.name])), [play])
   const [autoCue, setAutoCue] = useState(settings.autoAdvance)
+  const [showVoices, setShowVoices] = useState(false)
   const beat = state.beat
   const speaker = beat?.characterId ? nameById.get(beat.characterId) : undefined
   const paused = state.phase === 'paused'
@@ -606,12 +625,33 @@ function RunningView(props: {
             <span className="ctl-icon">⏩</span>
             <span className="ctl-label">{autoCue ? 'Auto-cue' : 'Auto-cue off'}</span>
           </button>
+          <button
+            className={`ctl ${showVoices ? 'active' : ''}`}
+            onClick={() => setShowVoices((v) => !v)}
+            title="Change the scene-partner voices"
+            aria-pressed={showVoices}
+          >
+            <span className="ctl-icon">🎭</span>
+            <span className="ctl-label">Voices</span>
+          </button>
           <button className="ctl danger" onClick={props.onStop} title="Finish and see your results">
             <span className="ctl-icon">■</span>
             <span className="ctl-label">Finish</span>
           </button>
         </div>
       </div>
+
+      {showVoices && (
+        <VoicePanel
+          play={play}
+          myCharId={props.myCharId}
+          engine={settings.tts}
+          assignments={props.voiceAssignments}
+          speakingCharId={state.phase === 'partner' ? beat?.characterId : undefined}
+          onChange={props.onChangeVoice}
+          onClose={() => setShowVoices(false)}
+        />
+      )}
     </section>
   )
 }
@@ -759,6 +799,91 @@ function directionFor(beat: Beat | undefined, characters: Character[]): string |
   if (beat.parenthetical) return beat.parenthetical
   const c = characters.find((ch) => ch.id === beat.characterId)
   return c?.voice?.direction
+}
+
+/** In-rehearsal voice casting: change any scene-partner's voice on the fly. A
+ *  voice already given to another character is greyed out so no two partners
+ *  share one — the actor's own character is not listed. */
+function VoicePanel(props: {
+  play: Play
+  myCharId: string
+  engine: TTSEngine
+  assignments: Map<string, VoiceAssignment>
+  speakingCharId?: string
+  onChange: (characterId: string, voiceId?: string) => void
+  onClose: () => void
+}) {
+  const { play, myCharId, engine, assignments, speakingCharId, onChange } = props
+  const [options, setOptions] = useState<TTSVoice[]>([])
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const opts = engine === 'kokoro' ? KOKORO_VOICES.map((v) => ({ id: v.id, label: v.label })) : await listWebSpeechVoices()
+      if (alive) setOptions(opts)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [engine])
+
+  const partners = play.characters.filter((c) => c.id !== myCharId)
+  // voiceId → characterId, so we can grey out a voice taken by someone else.
+  const takenBy = new Map<string, string>()
+  for (const c of partners) {
+    const vid = assignments.get(c.id)?.voiceId
+    if (vid) takenBy.set(vid, c.id)
+  }
+
+  return (
+    <div className="voice-panel" role="dialog" aria-label="Scene-partner voices">
+      <div className="voice-panel-head">
+        <strong>Scene-partner voices</strong>
+        <button className="ghost" onClick={props.onClose}>
+          Done
+        </button>
+      </div>
+      {options.length === 0 ? (
+        <p className="muted small">No selectable voices for this engine on this device.</p>
+      ) : (
+        <ul className="voice-list">
+          {partners.map((c) => {
+            const current = assignments.get(c.id)?.voiceId ?? ''
+            return (
+              <li key={c.id} className={speakingCharId === c.id ? 'speaking' : ''}>
+                <span className="voice-char">
+                  {c.name}
+                  {speakingCharId === c.id && <span className="speaking-dot" title="speaking now" />}
+                </span>
+                <select value={current} onChange={(e) => onChange(c.id, e.target.value || undefined)}>
+                  {current === '' && (
+                    <option value="" disabled>
+                      Default voice
+                    </option>
+                  )}
+                  {options.map((o) => {
+                    const owner = takenBy.get(o.id)
+                    const takenByOther = owner && owner !== c.id
+                    return (
+                      <option key={o.id} value={o.id} disabled={!!takenByOther}>
+                        {o.label}
+                        {takenByOther ? ` — used by ${nameOf(play, owner)}` : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <p className="muted small">A voice in use elsewhere is greyed out, so every character stays distinct.</p>
+    </div>
+  )
+}
+
+function nameOf(play: Play, id?: string): string {
+  return play.characters.find((c) => c.id === id)?.name ?? '—'
 }
 
 /** Render a line's words, optionally showing inline delivery directions before

@@ -361,5 +361,27 @@ h6!.onFinal('as far as the piano is concerned sentiment is my forte I keep scien
 await tick()
 check('line accepts once finished', l6.score?.passed === true, l6.score?.accuracy)
 
+// --- in-rehearsal voice change -------------------------------------------
+console.log('— voice change —')
+{
+  const vm = new Map([['B', { engine: 'webspeech' as const, rate: 1, voiceId: 'old' }]])
+  const eng = new RehearsalEngine({
+    play,
+    myCharacterId: 'A',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    speaker: speaker as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognizer: recognizer as any,
+    voiceMap: vm,
+    narratorVoice: { engine: 'webspeech', rate: 1 },
+    settings,
+    onUpdate: () => {},
+  })
+  eng.setVoice('B', 'new')
+  check('setVoice updates an existing character voice', vm.get('B')?.voiceId === 'new', vm.get('B'))
+  eng.setVoice('B', undefined)
+  check('setVoice can clear back to default', vm.get('B')?.voiceId === undefined)
+}
+
 console.log(`\n${fail === 0 ? 'ENGINE OK' : fail + ' FAILURE(S)'}`)
 if (fail > 0 && typeof process !== 'undefined') process.exitCode = 1
