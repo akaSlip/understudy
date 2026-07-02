@@ -48,9 +48,13 @@ const recognizer = {
 const pregenerated: string[] = []
 const speaker = {
   async speak() {},
+  async speakSegments() {},
   stop() {},
   async pregenerate(text: string) {
     pregenerated.push(text)
+  },
+  async pregenerateSegments(segments: { text: string }[]) {
+    pregenerated.push(segments.map((s) => s.text).join(' '))
   },
 }
 

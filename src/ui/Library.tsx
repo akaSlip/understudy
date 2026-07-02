@@ -1,7 +1,8 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { Route } from '../App'
 import type { Play } from '../types'
 import { parseScript, toFountain } from '../lib/fountain'
+import { extractText, isImage, isPdf, needsExtraction } from '../lib/ingest'
 import { uid } from '../lib/util'
 import { deletePlay, savePlay } from '../store/playsRepo'
 import { useApp } from './useApp'
@@ -9,24 +10,36 @@ import { useApp } from './useApp'
 export function Library({ go }: { go: (r: Route) => void }) {
   const { plays, reloadPlays } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   async function onImportFile(file: File) {
-    const text = await file.text()
-    const parsed = parseScript(text)
-    const now = Date.now()
-    const play: Play = {
-      id: uid('p_'),
-      title: parsed.title ?? file.name.replace(/\.[^.]+$/, ''),
-      author: parsed.author,
-      characters: parsed.characters,
-      beats: parsed.beats,
-      source: 'fountain',
-      createdAt: now,
-      updatedAt: now,
+    setImportError(null)
+    try {
+      setImporting(needsExtraction(file) ? 'Opening file…' : null)
+      const text = await extractText(file, (p) => setImporting(p.message))
+      const parsed = parseScript(text)
+      const now = Date.now()
+      const play: Play = {
+        id: uid('p_'),
+        title: parsed.title ?? file.name.replace(/\.[^.]+$/, ''),
+        author: parsed.author,
+        characters: parsed.characters,
+        beats: parsed.beats,
+        source: isPdf(file) || isImage(file) ? 'pdf' : 'fountain',
+        createdAt: now,
+        updatedAt: now,
+      }
+      await savePlay(play)
+      await reloadPlays()
+      go({ view: 'edit', playId: play.id })
+    } catch (e) {
+      setImportError(
+        `Couldn't read “${file.name}”. ${e instanceof Error ? e.message : ''} If it's a scanned PDF or photo, OCR needs a connection the first time.`,
+      )
+    } finally {
+      setImporting(null)
     }
-    await savePlay(play)
-    await reloadPlays()
-    go({ view: 'edit', playId: play.id })
   }
 
   function exportPlay(p: Play) {
@@ -54,11 +67,13 @@ export function Library({ go }: { go: (r: Route) => void }) {
           <button className="primary" onClick={() => go({ view: 'edit' })}>
             + New play
           </button>
-          <button onClick={() => fileRef.current?.click()}>Import file</button>
+          <button onClick={() => fileRef.current?.click()} disabled={!!importing}>
+            {importing ? 'Reading…' : 'Import file'}
+          </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".fountain,.txt,.md,text/plain"
+            accept=".fountain,.txt,.md,text/plain,.pdf,application/pdf,image/*"
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0]
@@ -69,7 +84,20 @@ export function Library({ go }: { go: (r: Route) => void }) {
         </div>
       </div>
 
-      {plays.length === 0 && <p className="muted">No plays yet. Create one or import a .fountain / .txt script.</p>}
+      {importing && (
+        <p className="import-status" role="status">
+          <span className="spinner" aria-hidden="true" /> {importing}
+        </p>
+      )}
+      {importError && (
+        <p className="import-error" role="alert">
+          {importError}
+        </p>
+      )}
+
+      {plays.length === 0 && (
+        <p className="muted">No plays yet. Create one, or import a .fountain / .txt / PDF script — or a photo or scan of a page.</p>
+      )}
 
       <ul className="play-list">
         {plays.map((p) => {

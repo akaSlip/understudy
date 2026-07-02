@@ -1,11 +1,24 @@
 // Unified TTS facade used by the rehearsal engine. Routes each line to the
 // right engine, caches blob-producing engines, and gives clean stop/abort.
 
-import type { VoiceAssignment } from '../types'
+import type { LineSegment, VoiceAssignment } from '../types'
+import { segmentsToTaggedText } from '../lib/directions'
 import { getCachedAudio, putCachedAudio } from '../store/audioCache'
 import { generateKokoro } from './kokoro'
 import { generatePremium, type PremiumConfig } from './premium'
-import { cancelWebSpeech, speakWebSpeech } from './webspeech'
+import { cancelWebSpeech, speakWebSpeech, speakWebSpeechSegments } from './webspeech'
+
+function isPremiumEngine(engine: VoiceAssignment['engine']): boolean {
+  return engine === 'elevenlabs' || engine === 'hume' || engine === 'openai'
+}
+
+/** The text a blob engine should synthesise for a segmented line: premium
+ *  engines get inline acting tags; the free Kokoro voice speaks plain words. */
+function renderSegments(voice: VoiceAssignment, segments: LineSegment[]): string {
+  return isPremiumEngine(voice.engine)
+    ? segmentsToTaggedText(segments)
+    : segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim()
+}
 
 export interface SpeakerConfig {
   /** Fallback rate when a voice doesn't set its own. */
@@ -62,9 +75,45 @@ export class Speaker {
     return this.playBlob(blob, rate, signal, onStart)
   }
 
+  /** Speak a line with inline emotion shifts. Free voices vary pitch/rate per
+   *  segment; blob engines synthesise the rendered (tagged / plain) text. */
+  async speakSegments(segments: LineSegment[], voice: VoiceAssignment, onStart?: () => void): Promise<void> {
+    this.stop()
+    const controller = new AbortController()
+    this.abort = controller
+    const signal = controller.signal
+    const rate = voice.rate ?? this.cfg.rate
+
+    if (voice.engine === 'webspeech') {
+      return speakWebSpeechSegments(segments, {
+        voiceId: voice.voiceId,
+        rate,
+        pitch: voice.pitch,
+        signal,
+        onStart,
+      })
+    }
+
+    const text = renderSegments(voice, segments)
+    const key = cacheKey(voice, text)
+    const cached = await getCachedAudio(key)
+    const blob = cached ?? (await this.generate(key, voice, text))
+    if (signal.aborted) throw new DOMException('aborted', 'AbortError')
+    return this.playBlob(blob, rate, signal, onStart)
+  }
+
   /** Generate + cache without playing (pre-warms an upcoming line). */
   async pregenerate(text: string, voice: VoiceAssignment): Promise<void> {
     if (voice.engine === 'webspeech') return // spoken live, nothing to cache
+    const key = cacheKey(voice, text)
+    if (await getCachedAudio(key)) return
+    await this.generate(key, voice, text)
+  }
+
+  /** Pre-warm a segmented line (blob engines only). */
+  async pregenerateSegments(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
+    if (voice.engine === 'webspeech') return
+    const text = renderSegments(voice, segments)
     const key = cacheKey(voice, text)
     if (await getCachedAudio(key)) return
     await this.generate(key, voice, text)

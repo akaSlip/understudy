@@ -7,6 +7,7 @@
 // normalises everything into our Beat/Character model.
 
 import type { Beat, Character } from '../types'
+import { applySegments, beatSegments } from './directions'
 import { characterKey, uid } from './util'
 
 export interface ParsedScript {
@@ -223,6 +224,9 @@ export function parseScript(raw: string): ParsedScript {
     openBeat = null
   }
 
+  // Pull any inline delivery directions out of each dialogue line into segments.
+  for (const b of beats) applySegments(b)
+
   return { title, author, characters: [...charByKey.values()], beats }
 }
 
@@ -264,7 +268,12 @@ export function mergeConsecutiveDialogue(beats: Beat[]): Beat[] {
       last.characterId === b.characterId &&
       !b.parenthetical
     ) {
+      // Merge the spoken text, and the delivery segments alongside it so inline
+      // directions survive a tidy of a double-spaced import.
       last.text = `${last.text} ${b.text}`.replace(/\s+/g, ' ').trim()
+      if (last.segments || b.segments) {
+        last.segments = [...beatSegments(last), ...beatSegments(b)]
+      }
     } else {
       out.push({ ...b })
     }
@@ -300,8 +309,13 @@ export function toFountain(opts: {
     } else {
       const name = (nameById.get(b.characterId!) ?? 'UNKNOWN').toUpperCase()
       out.push('', name)
-      if (b.parenthetical) out.push(`(${b.parenthetical})`)
-      out.push(b.text)
+      if (b.segments && b.segments.length) {
+        // Re-emit inline directions so a round-trip preserves the emotion shifts.
+        out.push(b.segments.map((s) => (s.direction ? `(${s.direction}) ${s.text}` : s.text)).join(' '))
+      } else {
+        if (b.parenthetical) out.push(`(${b.parenthetical})`)
+        out.push(b.text)
+      }
     }
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n'

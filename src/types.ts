@@ -36,6 +36,16 @@ export interface Character {
 
 export type BeatKind = 'dialogue' | 'action' | 'heading'
 
+/** A span of a line delivered with a single emotional colour. A line that
+ *  shifts "(bewildered) … (angrily) … (defeated) …" becomes several segments,
+ *  each spoken with its own delivery: premium engines get the direction as an
+ *  inline acting tag, and the free voices approximate it with pitch/rate/pause. */
+export interface LineSegment {
+  text: string
+  /** Delivery note for this span, e.g. "bewildered" (no surrounding parens). */
+  direction?: string
+}
+
 export interface Beat {
   id: string
   kind: BeatKind
@@ -44,8 +54,13 @@ export interface Beat {
   /** Parenthetical acting direction shown inline, e.g. "(bitterly)". Also fed
    *  to instruction-steerable premium TTS as delivery guidance. */
   parenthetical?: string
-  /** The spoken text (dialogue) or the direction/heading text. */
+  /** The spoken text (dialogue) or the direction/heading text. Always the plain
+   *  words with any inline directions removed — used for scoring and as the
+   *  fallback when there are no segments. */
   text: string
+  /** Present when a dialogue line carries inline delivery shifts. The segments'
+   *  text concatenates back to `text`. Absent for a single-tone line. */
+  segments?: LineSegment[]
 }
 
 export interface Play {

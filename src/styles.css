@@ -1053,3 +1053,48 @@ legend {
     flex-direction: column;
   }
 }
+
+/* --- Import status (PDF / OCR) ------------------------------------------- */
+.import-status,
+.import-error {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.import-status {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.import-error {
+  color: var(--danger);
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.5s;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Inline delivery directions on the teleprompter. */
+.seg-direction {
+  color: var(--accent-2);
+  font-style: italic;
+  font-size: 0.82em;
+  margin: 0 0.35em 0 0.1em;
+  opacity: 0.9;
+  white-space: nowrap;
+}

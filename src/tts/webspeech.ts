@@ -4,6 +4,9 @@
 // (many engines cut off past ~200 chars) and a watchdog resumes if the engine
 // stalls.
 
+import type { LineSegment } from '../types'
+import { clampProsody, directionToProsody, segmentGapMs } from '../lib/directions'
+
 export interface TTSVoice {
   id: string
   label: string
@@ -87,26 +90,39 @@ export interface WebSpeechOptions {
   onStart?: () => void
 }
 
-export function speakWebSpeech(text: string, opts: WebSpeechOptions = {}): Promise<void> {
+/** One queued utterance: text plus its prosody and a pause to precede it. */
+interface Utterance {
+  text: string
+  rate: number
+  pitch: number
+  gapBefore: number
+}
+
+/** Speak a prepared list of utterances in order, honouring abort, the Chrome
+ *  idle-stall watchdog, and per-item pauses. Shared by the plain and the
+ *  segment (per-emotion) speak paths. */
+function runUtterances(items: Utterance[], opts: WebSpeechOptions): Promise<void> {
   if (!synthesisSupported()) return Promise.reject(new Error('SpeechSynthesis not supported'))
   const synth = window.speechSynthesis
   synth.cancel() // clear anything stuck in the queue
 
   const voice = pickVoice(opts.voiceId)
-  const parts = chunk(text)
   let started = false
 
   return new Promise<void>((resolve, reject) => {
     if (opts.signal?.aborted) return reject(new DOMException('aborted', 'AbortError'))
+    if (!items.length) return resolve()
 
     let idx = 0
     let cancelled = false
     let current: SpeechSynthesisUtterance | null = null
     let watchdog: ReturnType<typeof setInterval> | undefined
+    let gapTimer: ReturnType<typeof setTimeout> | undefined
 
     const cleanup = () => {
       cancelled = true
       if (watchdog) clearInterval(watchdog)
+      if (gapTimer) clearTimeout(gapTimer)
       opts.signal?.removeEventListener('abort', onAbort)
       // Disarm the in-flight utterance so a late 'end' (Chrome fires 'end', not
       // 'error', for a cancel()) can't re-enter the chain and speak stale chunks.
@@ -126,37 +142,43 @@ export function speakWebSpeech(text: string, opts: WebSpeechOptions = {}): Promi
 
     const speakNext = () => {
       if (cancelled) return
-      if (idx >= parts.length) {
+      if (idx >= items.length) {
         cleanup()
         resolve()
         return
       }
-      const u = new SpeechSynthesisUtterance(parts[idx++])
-      current = u
-      if (voice) u.voice = voice
-      u.rate = opts.rate ?? 1
-      u.pitch = opts.pitch ?? 1
-      u.onstart = () => {
-        if (!started) {
-          started = true
-          opts.onStart?.()
-        }
-      }
-      u.onend = () => {
+      const item = items[idx++]
+      const go = () => {
         if (cancelled) return
-        speakNext()
-      }
-      u.onerror = (e) => {
-        if (cancelled) return
-        cleanup()
-        // 'interrupted'/'canceled' are expected when we stop; treat as abort.
-        if (e.error === 'interrupted' || e.error === 'canceled') {
-          reject(new DOMException('aborted', 'AbortError'))
-        } else {
-          reject(new Error(`SpeechSynthesis error: ${e.error}`))
+        const u = new SpeechSynthesisUtterance(item.text)
+        current = u
+        if (voice) u.voice = voice
+        u.rate = item.rate
+        u.pitch = item.pitch
+        u.onstart = () => {
+          if (!started) {
+            started = true
+            opts.onStart?.()
+          }
         }
+        u.onend = () => {
+          if (cancelled) return
+          speakNext()
+        }
+        u.onerror = (e) => {
+          if (cancelled) return
+          cleanup()
+          // 'interrupted'/'canceled' are expected when we stop; treat as abort.
+          if (e.error === 'interrupted' || e.error === 'canceled') {
+            reject(new DOMException('aborted', 'AbortError'))
+          } else {
+            reject(new Error(`SpeechSynthesis error: ${e.error}`))
+          }
+        }
+        synth.speak(u)
       }
-      synth.speak(u)
+      if (item.gapBefore > 0) gapTimer = setTimeout(go, item.gapBefore)
+      else go()
     }
 
     // Chrome pauses synthesis when it thinks it's idle; nudge it.
@@ -166,6 +188,30 @@ export function speakWebSpeech(text: string, opts: WebSpeechOptions = {}): Promi
 
     speakNext()
   })
+}
+
+export function speakWebSpeech(text: string, opts: WebSpeechOptions = {}): Promise<void> {
+  const rate = opts.rate ?? 1
+  const pitch = opts.pitch ?? 1
+  const items: Utterance[] = chunk(text).map((t) => ({ text: t, rate, pitch, gapBefore: 0 }))
+  return runUtterances(items, opts)
+}
+
+/** Speak a line whose emotion shifts partway through: each segment gets its own
+ *  pitch/rate (approximating its direction) and a short pause before it. */
+export function speakWebSpeechSegments(segments: LineSegment[], opts: WebSpeechOptions = {}): Promise<void> {
+  const baseRate = opts.rate ?? 1
+  const basePitch = opts.pitch ?? 1
+  const items: Utterance[] = []
+  segments.forEach((seg, si) => {
+    const p = directionToProsody(seg.direction)
+    const rate = clampProsody(baseRate * p.rate, 0.5, 2)
+    const pitch = clampProsody(basePitch * p.pitch, 0, 2)
+    chunk(seg.text).forEach((t, pi) => {
+      items.push({ text: t, rate, pitch, gapBefore: si > 0 && pi === 0 ? segmentGapMs(seg.direction) : 0 })
+    })
+  })
+  return runUtterances(items, opts)
 }
 
 export function cancelWebSpeech(): void {

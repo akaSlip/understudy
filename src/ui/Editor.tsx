@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Route } from '../App'
 import type { Character, Play, VoiceAssignment } from '../types'
 import { mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
+import { extractText, needsExtraction } from '../lib/ingest'
 import { characterKey, uid } from '../lib/util'
 import { getPlay, savePlay } from '../store/playsRepo'
 import { KOKORO_VOICES } from '../tts/kokoro'
@@ -26,8 +27,12 @@ ROMEO
 (quietly, in awe)
 It is the east, and Juliet is the sun.
 
-Tip: a line in (parentheses) sets the delivery manner shown during rehearsal —
-it can be a phrase, e.g. (exasperated, sarcastic, then bewildered).`
+Tip: a line in (parentheses) sets the delivery manner shown during rehearsal.
+You can also change delivery *mid-line* — the scene-partner voice follows each:
+
+LEAR: (bewildered) Who is it can tell me who I am? (angrily) Does any here know me? (defeated) I am a very foolish fond old man.
+
+Or use “Load file” to import a .fountain/.txt/PDF script — or even a photo or scan of a page (it’s read with OCR).`
 
 export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void }) {
   const { settings, reloadPlays } = useApp()
@@ -38,6 +43,8 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
   const [existing, setExisting] = useState<Play | null>(null)
   const [voiceOptions, setVoiceOptions] = useState<TTSVoice[]>([])
   const [saved, setSaved] = useState(false)
+  const [importing, setImporting] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -99,11 +106,21 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
   }
 
   async function loadFile(file: File) {
-    const text = await file.text()
-    const p = parseScript(text)
-    if (p.title) setTitle(p.title)
-    if (p.author) setAuthor(p.author)
-    setScriptText(toFountain({ characters: p.characters, beats: p.beats }))
+    setImportError(null)
+    try {
+      setImporting(needsExtraction(file) ? 'Opening file…' : null)
+      const text = await extractText(file, (p) => setImporting(p.message))
+      const p = parseScript(text)
+      setTitle(p.title || file.name.replace(/\.[^.]+$/, ''))
+      if (p.author) setAuthor(p.author)
+      setScriptText(toFountain({ characters: p.characters, beats: p.beats }))
+    } catch (e) {
+      setImportError(
+        `Couldn't read “${file.name}”. ${e instanceof Error ? e.message : ''} If it's a scanned PDF or photo, OCR needs a connection the first time.`,
+      )
+    } finally {
+      setImporting(null)
+    }
   }
 
   const dialogueCount = parsed.beats.filter((b) => b.kind === 'dialogue').length
@@ -120,7 +137,9 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
         <h1>{existing ? 'Edit play' : 'New play'}</h1>
         <div className="actions">
           <button onClick={() => go({ view: 'library' })}>Back</button>
-          <button onClick={() => fileRef.current?.click()}>Load file</button>
+          <button onClick={() => fileRef.current?.click()} disabled={!!importing}>
+            {importing ? 'Reading…' : 'Load file'}
+          </button>
           <button
             onClick={tidySpeeches}
             disabled={mergeableCount === 0}
@@ -141,7 +160,7 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
           <input
             ref={fileRef}
             type="file"
-            accept=".fountain,.txt,.md,text/plain"
+            accept=".fountain,.txt,.md,text/plain,.pdf,application/pdf,image/*"
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0]
@@ -151,6 +170,17 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
           />
         </div>
       </div>
+
+      {importing && (
+        <p className="import-status" role="status">
+          <span className="spinner" aria-hidden="true" /> {importing}
+        </p>
+      )}
+      {importError && (
+        <p className="import-error" role="alert">
+          {importError}
+        </p>
+      )}
 
       <div className="editor-grid">
         <div className="editor-main">

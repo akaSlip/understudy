@@ -11,6 +11,7 @@ import type { Recognizer } from '../audio/recognizer'
 import type { AppSettings } from '../store/settings'
 import type { Speaker } from '../tts/speaker'
 import { scoreLine } from '../lib/scorer'
+import { beatSegments } from '../lib/directions'
 
 export type Phase = 'idle' | 'partner' | 'stage' | 'listening' | 'scored' | 'stuck' | 'paused' | 'done'
 
@@ -298,7 +299,7 @@ export class RehearsalEngine {
     this.speakingCharId = beat.characterId
     this.emit()
     const voice = this.deps.voiceMap.get(beat.characterId!) ?? this.deps.narratorVoice
-    this.speak(beat.text, voice, () => this.emit()).then(
+    this.deps.speaker.speakSegments(beatSegments(beat), voice, () => this.emit()).then(
       () => {
         if (this.running && this.phase === 'partner') this.goToPos(this.pos + 1)
       },
@@ -325,7 +326,7 @@ export class RehearsalEngine {
       const b = this.beats[this.order[p]]
       if (b?.kind === 'dialogue' && b.characterId && b.characterId !== this.deps.myCharacterId) {
         const voice = this.deps.voiceMap.get(b.characterId) ?? this.deps.narratorVoice
-        void this.deps.speaker.pregenerate(b.text, voice).catch(() => {})
+        void this.deps.speaker.pregenerateSegments(beatSegments(b), voice).catch(() => {})
         found++
       }
     }

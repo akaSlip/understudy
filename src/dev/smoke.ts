@@ -3,7 +3,9 @@
 //   npx esbuild src/dev/smoke.ts --bundle --format=esm --platform=node \
 //     --outfile=/tmp/understudy-smoke.mjs && node /tmp/understudy-smoke.mjs
 
-import { mergeConsecutiveDialogue, parseScript } from '../lib/fountain'
+import { mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
+import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
+import { isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
 import { SEED_PLAYS, buildSeedPlay } from '../lib/seed'
 
@@ -100,6 +102,55 @@ check('tidy never merges across characters', mergeConsecutiveDialogue(mixed.beat
 const earnestSeed = buildSeedPlay(SEED_PLAYS[0], 0)
 const wonderful = earnestSeed.beats.find((b) => b.kind === 'dialogue' && b.text.includes('wonderful expression'))
 check('seed: "wonderful expression" speech is one full beat', !!wonderful && wonderful.text.includes('science for Life'), wonderful?.text.slice(0, 32))
+
+console.log('\n— PDF text reconstruction —')
+// Synthetic positioned text items (word = one item; y is the baseline). Rows at
+// 180 and 150 are one speech; the row at 100 is a bigger gap → new paragraph.
+function row(y: number, words: string[], x0 = 20): { str: string; transform: number[] }[] {
+  return words.map((w, i) => ({ str: w + (i < words.length - 1 ? ' ' : ''), transform: [1, 0, 0, 1, x0 + i * 30, y] }))
+}
+const items = [
+  ...row(180, ['ALGERNON:', 'Hello', 'there.']),
+  ...row(150, ['How', 'are', 'you?']),
+  ...row(100, ['JACK:', 'Fine,', 'thanks.']),
+]
+const rebuilt = reconstructLines(items)
+check('rows become separate lines', rebuilt.split('\n').filter((l) => l.trim()).length === 3, JSON.stringify(rebuilt))
+check('a larger vertical gap inserts a blank line', /you\?\n\nJACK/.test(rebuilt), JSON.stringify(rebuilt))
+const reparsed = parseScript(rebuilt)
+check('reconstructed PDF text parses to 2 characters', reparsed.characters.length === 2, reparsed.characters.map((c) => c.name))
+const asFile = (name: string, type = '') => ({ name, type }) as unknown as File
+check(
+  'isPdf / isImage / needsExtraction detect by extension',
+  isPdf(asFile('a.pdf')) && isImage(asFile('b.jpg')) && needsExtraction(asFile('c.png')) && !needsExtraction(asFile('d.txt')),
+)
+
+console.log('\n— inline delivery directions —')
+const shift = parseScript('LEAR: (bewildered) Who is it can tell me who I am? (angrily) Does any here know me? (defeated) I should be false persuaded I had daughters.')
+const lear = shift.beats.find((b) => b.kind === 'dialogue')
+check('inline directions split into segments', lear?.segments?.length === 3, lear?.segments?.map((s) => s.direction))
+check('segment directions captured in order', JSON.stringify(lear?.segments?.map((s) => s.direction)) === JSON.stringify(['bewildered', 'angrily', 'defeated']), lear?.segments?.map((s) => s.direction))
+check('plain text drops the direction tags', !/[()]/.test(lear?.text ?? '(') && /Who is it/.test(lear?.text ?? ''), lear?.text)
+check('segment text concatenates back to the line', lear?.segments?.map((s) => s.text).join(' ') === lear?.text, lear?.text)
+
+// A single-tone line gets no segments (falls back to whole-line delivery).
+const plainLine = parseScript('JACK: I believe it is customary to take some refreshment.')
+check('single-tone line has no segments', !plainLine.beats.find((b) => b.kind === 'dialogue')?.segments)
+
+// A parenthetical aside that is NOT a direction stays in the spoken text.
+const aside = parseScript('BEN: I saw him (the tall one, from before) yesterday morning.')
+const benBeat = aside.beats.find((b) => b.kind === 'dialogue')
+check('non-direction parenthetical kept as spoken text', /the tall one/.test(benBeat?.text ?? '') && !benBeat?.segments, benBeat?.text)
+
+// Round-trip through Fountain preserves the inline directions.
+const rt = parseScript(toFountain({ characters: shift.characters, beats: shift.beats }))
+check('round-trip keeps 3 segments', rt.beats.find((b) => b.kind === 'dialogue')?.segments?.length === 3, rt.beats.find((b) => b.kind === 'dialogue')?.segments?.map((s) => s.direction))
+
+// Premium tagging + prosody mapping.
+check('premium tagged text uses [tags]', segmentsToTaggedText(lear!.segments!) === '[bewildered] Who is it can tell me who I am? [angrily] Does any here know me? [defeated] I should be false persuaded I had daughters.', segmentsToTaggedText(lear!.segments!))
+check('angry ≠ neutral prosody', directionToProsody('angrily').pitch !== 1 && directionToProsody('angrily').rate > 1)
+check('sad direction slows + lowers', directionToProsody('defeated').rate < 1 && directionToProsody('defeated').pitch < 1)
+check('unknown direction is neutral', directionToProsody('quizzically-ish-xyz').rate === 1 && directionToProsody('quizzically-ish-xyz').pitch === 1)
 
 console.log('\n— scorer fixes —')
 const dash = scoreLine('Well — no.', 'well no')

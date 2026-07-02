@@ -514,7 +514,7 @@ function RunningView(props: {
             {state.score ? (
               <WordDiff words={state.score.words} revealed={showMine} score={state.score} />
             ) : showMine ? (
-              <p className="beat-text">{beat.text}</p>
+              <LineText beat={beat} showDirections={settings.showDirections} />
             ) : (
               <p className="beat-text prompt-hidden">Your line — say it from memory.</p>
             )}
@@ -542,7 +542,7 @@ function RunningView(props: {
               {state.phase === 'partner' && <span className="speaking-dot" title="speaking" />}
             </div>
             {direction && <div className="direction-note">{direction}</div>}
-            <p className="beat-text">{beat.text}</p>
+            <LineText beat={beat} showDirections={settings.showDirections} />
           </>
         )}
       </div>
@@ -759,4 +759,24 @@ function directionFor(beat: Beat | undefined, characters: Character[]): string |
   if (beat.parenthetical) return beat.parenthetical
   const c = characters.find((ch) => ch.id === beat.characterId)
   return c?.voice?.direction
+}
+
+/** Render a line's words, optionally showing inline delivery directions before
+ *  each segment when the line shifts emotion partway through. */
+function LineText({ beat, showDirections }: { beat: Beat; showDirections: boolean }) {
+  const segments = beat.segments
+  if (!showDirections || !segments || segments.length === 0) {
+    return <p className="beat-text">{beat.text}</p>
+  }
+  return (
+    <p className="beat-text">
+      {segments.map((s, i) => (
+        <span key={i}>
+          {s.direction && <em className="seg-direction">({s.direction})</em>}
+          {s.text}
+          {i < segments.length - 1 ? ' ' : ''}
+        </span>
+      ))}
+    </p>
+  )
 }

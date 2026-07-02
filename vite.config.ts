@@ -70,7 +70,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     // These pull large WASM/ONNX runtimes; let them resolve lazily.
-    exclude: ['@huggingface/transformers', 'kokoro-js'],
+    exclude: ['@huggingface/transformers', 'kokoro-js', 'pdfjs-dist', 'tesseract.js'],
   },
   build: {
     target: 'es2022',
