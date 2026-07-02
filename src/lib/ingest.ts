@@ -77,11 +77,33 @@ async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> 
   } finally {
     await doc.destroy()
   }
-  const combined = pages.join('\n\n')
+  const combined = cleanEditionArtifacts(pages.join('\n\n'))
   // Only fail the import when OCR was the ONLY possible source of text.
   if (ocrError && !combined.trim()) throw ocrError instanceof Error ? ocrError : new Error(String(ocrError))
   onProgress?.({ stage: 'done', message: 'Finished reading.' })
   return combined
+}
+
+/** Strip scholarly-edition apparatus that would pollute line scoring. Folger
+ *  PDFs (the most common free Shakespeare source) prefix every line with
+ *  "FTLN 1234" and put margin line numbers at line ends — an actor would be
+ *  marked wrong for not saying them. Only applied when the document clearly
+ *  carries the FTLN signature, so ordinary scripts are untouched. */
+export function cleanEditionArtifacts(text: string): string {
+  const ftln = /^\s*F[TI1l]LN\s*\d+\s*/ // OCR often misreads FTLN as FILN/F1LN
+  const lines = text.split('\n')
+  const isFolger = lines.filter((l) => ftln.test(l)).length >= 3
+  const out = lines.map((raw) => {
+    let l = raw
+    if (isFolger) {
+      l = l.replace(ftln, '')
+      l = l.replace(/\s+\d{1,4}$/, '') // trailing margin line number
+    }
+    // A line that is only a number (page number) says nothing worth keeping.
+    if (/^\s*\d{1,4}\s*$/.test(l)) return ''
+    return l
+  })
+  return out.join('\n')
 }
 
 export interface TextItem {

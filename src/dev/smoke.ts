@@ -6,7 +6,7 @@
 import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
 import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
-import { isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
+import { cleanEditionArtifacts, isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
 import { azureStyle, buildAzureSSML, directionsInstruction, geminiPrompt, isPremiumEngine, pcmToWav } from '../tts/premium'
 import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
@@ -127,6 +127,23 @@ check(
   'isPdf / isImage / needsExtraction detect by extension',
   isPdf(asFile('a.pdf')) && isImage(asFile('b.jpg')) && needsExtraction(asFile('c.png')) && !needsExtraction(asFile('d.txt')),
 )
+
+console.log('\n— edition apparatus cleanup (Folger FTLN) —')
+const folger = [
+  '101 Macbeth ACT 3. SC. 4',
+  'MACBETH',
+  'FTLN 1234 Whole as the marble, founded as the rock,',
+  'FTLN 1235 As broad and general as the casing air. 25',
+  'FILN 1236 But now I am cabined, cribbed, confined,', // OCR misread of FTLN
+  '46',
+].join('\n')
+const cleanedF = cleanEditionArtifacts(folger)
+check('FTLN prefixes stripped', !/F[TI]LN/.test(cleanedF), cleanedF)
+check('trailing margin numbers stripped', !/air\. 25/.test(cleanedF) && /casing air\./.test(cleanedF))
+check('page-number-only lines dropped', !/^\s*46\s*$/m.test(cleanedF))
+check('the spoken words survive', /cabined, cribbed, confined/.test(cleanedF))
+const normalScript = 'JACK: I have 25 pounds.\n\nALGERNON: Lend me 5.'
+check('non-Folger text untouched (no FTLN signature)', cleanEditionArtifacts(normalScript) === normalScript)
 
 console.log('\n— inline delivery directions —')
 const shift = parseScript('LEAR: (bewildered) Who is it can tell me who I am? (angrily) Does any here know me? (defeated) I should be false persuaded I had daughters.')
