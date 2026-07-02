@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
+import type { PremiumEngine } from '../types'
 import { webSpeechSupported } from '../audio/webSpeechRecognizer'
 import { compatibilityReport, detectCapabilities } from '../lib/capabilities'
 import { synthesisSupported } from '../tts/webspeech'
+import { isPremiumEngine } from '../tts/premium'
+import { ENGINE_INFO, PREMIUM_VOICES } from '../tts/premiumVoices'
+import { Speaker } from '../tts/speaker'
+import type { PremiumSettings } from '../store/settings'
 import { audioCacheStats, clearAudioCache } from '../store/audioCache'
 import { CompatBanner } from './CompatBanner'
 import { useApp } from './useApp'
@@ -26,6 +31,9 @@ export function Settings() {
   const webSpeechOk = webSpeechSupported()
   const synthOk = synthesisSupported()
   const compat = compatibilityReport(detectCapabilities(), settings)
+  // Narrowed once so it's usable inside callbacks (a guard on settings.tts alone
+  // wouldn't survive into the onPatch closure).
+  const premiumEngine = isPremiumEngine(settings.tts) ? settings.tts : null
 
   return (
     <section className="settings">
@@ -105,7 +113,7 @@ export function Settings() {
               onChange={() => updateSettings({ tts: 'webspeech' })}
             />
             <span>
-              <strong>System voice</strong> — instant, zero download. Quality varies by device.
+              <strong>System voice</strong> — free, instant, offline. Quality varies by device.
             </span>
           </label>
           <label className="opt">
@@ -115,9 +123,37 @@ export function Settings() {
               onChange={() => updateSettings({ tts: 'kokoro' })}
             />
             <span>
-              <strong>Kokoro (neural, on-device)</strong> — noticeably less robotic, offline. Downloads a model on first use.
+              <strong>Kokoro (neural, on-device)</strong> — free, offline, less robotic. Downloads a model on first use.
             </span>
           </label>
+
+          <p className="muted small" style={{ margin: '0.5rem 0 0.25rem' }}>
+            Expressive cloud voices — paste your own API key (kept only on this device, called straight from your browser,
+            no server to set up):
+          </p>
+          {(['elevenlabs', 'openai', 'azure', 'gemini'] as PremiumEngine[]).map((eng) => (
+            <label className="opt" key={eng}>
+              <input type="radio" checked={settings.tts === eng} onChange={() => updateSettings({ tts: eng })} />
+              <span>
+                <strong>{ENGINE_INFO[eng].label}</strong>
+                {settings.premium[eng]?.apiKey ? ' — key set ✓' : ' — needs a key'}
+              </span>
+            </label>
+          ))}
+
+          {premiumEngine && (
+            <PremiumVoiceConfig
+              engine={premiumEngine}
+              cfg={settings.premium[premiumEngine] ?? {}}
+              rate={settings.ttsRate}
+              onPatch={(patch) =>
+                updateSettings({
+                  premium: { ...settings.premium, [premiumEngine]: { ...settings.premium[premiumEngine], ...patch } },
+                })
+              }
+            />
+          )}
+
           <label className="range">
             <span>Voice speed: {settings.ttsRate.toFixed(2)}×</span>
             <input
@@ -300,15 +336,106 @@ export function Settings() {
         </fieldset>
 
         <fieldset className="premium-note">
-          <legend>Expressive voices (premium)</legend>
+          <legend>About the expressive voices</legend>
           <p className="muted small">
-            v1 uses free on-device voices. To enable true acting inflection later (ElevenLabs v3 / Hume Octave),
-            add an API key — audio is generated once per line and cached, so it plays back instantly and offline.
-            The wiring already exists in <code>src/tts/premium.ts</code>; only a key (and, for ElevenLabs, a small
-            CORS relay) is needed.
+            ElevenLabs, OpenAI, Azure and Gemini give true acting inflection and follow your inline “(emotion)”
+            directions. Pick one above and paste your own API key — it’s stored only on this device and called straight
+            from your browser, so there’s nothing to host. Each line is generated once, then cached and replays offline.
+            OpenAI, Gemini and Azure work directly; ElevenLabs may need a relay in some browsers (that one field is
+            optional and only shown for ElevenLabs).
           </p>
         </fieldset>
       </div>
     </section>
+  )
+}
+
+/** Per-engine cloud voice config: API key (+ region for Azure), a default
+ *  voice, optional model, and a live "Test voice" that proves the key works. */
+function PremiumVoiceConfig(props: {
+  engine: PremiumEngine
+  cfg: PremiumSettings
+  rate: number
+  onPatch: (patch: Partial<PremiumSettings>) => void
+}) {
+  const { engine, cfg, rate, onPatch } = props
+  const info = ENGINE_INFO[engine]
+  const [test, setTest] = useState<'idle' | 'testing' | 'ok' | string>('idle')
+
+  async function testVoice() {
+    setTest('testing')
+    try {
+      const speaker = new Speaker({ rate, premium: { engine, ...cfg } })
+      await speaker.speak('Hello — this is your scene partner, ready to rehearse.', {
+        engine,
+        voiceId: cfg.voiceId,
+        rate,
+      })
+      setTest('ok')
+    } catch (e) {
+      setTest(e instanceof Error ? e.message : 'Test failed.')
+    }
+  }
+
+  return (
+    <div className="premium-config">
+      <label className="field">
+        <span>API key</span>
+        <input
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Paste your key"
+          value={cfg.apiKey ?? ''}
+          onChange={(e) => onPatch({ apiKey: e.target.value.trim() || undefined })}
+        />
+      </label>
+      {info.needsRegion && (
+        <label className="field">
+          <span>Region</span>
+          <input
+            placeholder="e.g. uksouth"
+            value={cfg.region ?? ''}
+            onChange={(e) => onPatch({ region: e.target.value.trim() || undefined })}
+          />
+        </label>
+      )}
+      <label className="field">
+        <span>Default voice</span>
+        <select value={cfg.voiceId ?? ''} onChange={(e) => onPatch({ voiceId: e.target.value || undefined })}>
+          <option value="">Engine default</option>
+          {PREMIUM_VOICES[engine].map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="premium-actions">
+        <button type="button" onClick={() => void testVoice()} disabled={!cfg.apiKey || test === 'testing'}>
+          {test === 'testing' ? 'Testing…' : 'Test voice'}
+        </button>
+        {test === 'ok' && <span className="ok small">Sounds good ✓</span>}
+        {test !== 'idle' && test !== 'testing' && test !== 'ok' && <span className="import-error small">{test}</span>}
+        <a href={info.keysUrl} target="_blank" rel="noreferrer" className="muted small">
+          Get a key →
+        </a>
+      </div>
+      <p className="muted small">
+        Your key is stored only in this browser and sent directly to {info.label}
+        {engine === 'elevenlabs' ? ' (if your browser blocks it, add a relay URL under Advanced).' : ' — no server needed.'}{' '}
+        Each line is generated once, then cached and replays offline.
+      </p>
+      {engine === 'elevenlabs' && (
+        <label className="field">
+          <span>Relay URL (optional)</span>
+          <input
+            placeholder="Only if direct calls are CORS-blocked"
+            value={cfg.proxyUrl ?? ''}
+            onChange={(e) => onPatch({ proxyUrl: e.target.value.trim() || undefined })}
+          />
+        </label>
+      )}
+    </div>
   )
 }

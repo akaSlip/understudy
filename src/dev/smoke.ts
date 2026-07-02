@@ -8,7 +8,8 @@ import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
 import { isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
-import { buildVoiceMap } from '../tts/voices'
+import { azureStyle, buildAzureSSML, directionsInstruction, geminiPrompt, isPremiumEngine, pcmToWav } from '../tts/premium'
+import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
 import { SEED_PLAYS, buildSeedPlay } from '../lib/seed'
 
 let failures = 0
@@ -184,6 +185,30 @@ await (async () => {
   check('Algernon cast as a male voice', g(map.get('b')?.voiceId) === 'm', map.get('b')?.voiceId)
   check('Cecily cast as a female voice', g(map.get('d')?.voiceId) === 'f', map.get('d')?.voiceId)
 })()
+
+console.log('\n— cloud voice engines —')
+check(
+  'isPremiumEngine identifies the cloud engines',
+  isPremiumEngine('openai') && isPremiumEngine('azure') && isPremiumEngine('gemini') && isPremiumEngine('elevenlabs') && !isPremiumEngine('kokoro') && !isPremiumEngine('webspeech'),
+)
+const segs = [
+  { text: 'What is this?', direction: 'bewildered' },
+  { text: 'How dare you!', direction: 'angrily' },
+  { text: 'I give up.', direction: 'defeated' },
+]
+check('OpenAI instruction summarises the shifts', directionsInstruction(segs) === 'Perform with shifting emotion — bewildered, then angrily, then defeated.', directionsInstruction(segs))
+check('single-direction instruction reads naturally', directionsInstruction([{ text: 'hi', direction: 'sadly' }]) === 'Speak in a sadly tone.')
+check('no direction → no instruction', directionsInstruction([{ text: 'hi' }]) === undefined)
+check('Gemini prompt embeds instruction + spoken text', geminiPrompt(segs).includes('shifting emotion') && geminiPrompt(segs).includes('I give up.'))
+check('azureStyle maps known emotions', azureStyle('angrily') === 'angry' && azureStyle('defeated') === 'sad')
+check('azureStyle returns undefined when unmapped', azureStyle('bewildered') === undefined)
+const ssml = buildAzureSSML(segs, 'en-US-AriaNeural')
+check('SSML wraps mapped styles in express-as', ssml.includes('<mstts:express-as style="angry"') && ssml.includes('<mstts:express-as style="sad"'), ssml)
+check('SSML names the voice and keeps the words', ssml.includes('name="en-US-AriaNeural"') && ssml.includes('How dare you!'))
+const wav = pcmToWav(btoa('\x01\x02\x03\x04'), 24000)
+check('pcmToWav builds a 44-byte-header WAV blob', wav.type === 'audio/wav' && wav.size === 44 + 4, wav.size)
+const openaiVoices = await listVoicesForEngine('openai')
+check('listVoicesForEngine returns the cloud voice pool', openaiVoices.length > 0 && !!openaiVoices[0].id)
 
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILURE(S)'}`)
 if (failures > 0 && typeof process !== 'undefined') process.exitCode = 1

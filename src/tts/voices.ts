@@ -6,21 +6,23 @@
 
 import type { Character, TTSEngine, VoiceAssignment } from '../types'
 import { guessGender, type Gender } from '../lib/gender'
+import { isPremiumEngine } from './premium'
+import { PREMIUM_VOICES } from './premiumVoices'
 import { KOKORO_VOICES } from './kokoro'
-import { listWebSpeechVoices } from './webspeech'
+import { listWebSpeechVoices, type TTSVoice } from './webspeech'
 
 export interface PoolVoice {
   id: string
   gender?: Gender
 }
 
-// Default ElevenLabs library voices (only used once premium is configured).
-const ELEVEN_POOL: PoolVoice[] = [
-  { id: '21m00Tcm4TlvDq8ikWAM', gender: 'f' }, // Rachel
-  { id: 'AZnzlk1XvdvUeBnXmlld', gender: 'f' }, // Domi
-  { id: 'EXAVITQu4vr4xnSDxMaL', gender: 'f' }, // Bella
-  { id: 'ErXwobaYiN019PkySvjV', gender: 'm' }, // Antoni
-]
+/** The selectable voices for an engine (for the editor / in-rehearsal pickers). */
+export async function listVoicesForEngine(engine: TTSEngine): Promise<TTSVoice[]> {
+  if (engine === 'kokoro') return KOKORO_VOICES.map((v) => ({ id: v.id, label: v.label }))
+  if (engine === 'webspeech') return listWebSpeechVoices()
+  if (isPremiumEngine(engine)) return PREMIUM_VOICES[engine].map((v) => ({ id: v.id, label: v.label }))
+  return []
+}
 
 /** Infer a Web Speech voice's gender from its name/URI ("…Female", "David", …). */
 function webSpeechGender(label: string, id: string): Gender | undefined {
@@ -51,7 +53,10 @@ export async function genderedPool(engine: TTSEngine): Promise<PoolVoice[]> {
     const pool = list.map((v) => ({ id: v.id, gender: webSpeechGender(v.label, v.id) }))
     return pool.length ? pool : [{ id: '' }]
   }
-  return ELEVEN_POOL
+  if (isPremiumEngine(engine)) {
+    return PREMIUM_VOICES[engine].map((v) => ({ id: v.id, gender: v.gender }))
+  }
+  return [{ id: '' }]
 }
 
 /** Back-compat: just the ids of the engine's pool. */

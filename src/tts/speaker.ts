@@ -2,23 +2,10 @@
 // right engine, caches blob-producing engines, and gives clean stop/abort.
 
 import type { LineSegment, VoiceAssignment } from '../types'
-import { segmentsToTaggedText } from '../lib/directions'
 import { getCachedAudio, putCachedAudio } from '../store/audioCache'
 import { generateKokoro } from './kokoro'
-import { generatePremium, type PremiumConfig } from './premium'
-import { cancelWebSpeech, speakWebSpeech, speakWebSpeechSegments } from './webspeech'
-
-function isPremiumEngine(engine: VoiceAssignment['engine']): boolean {
-  return engine === 'elevenlabs' || engine === 'hume' || engine === 'openai'
-}
-
-/** The text a blob engine should synthesise for a segmented line: premium
- *  engines get inline acting tags; the free Kokoro voice speaks plain words. */
-function renderSegments(voice: VoiceAssignment, segments: LineSegment[]): string {
-  return isPremiumEngine(voice.engine)
-    ? segmentsToTaggedText(segments)
-    : segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim()
-}
+import { generatePremium, plainText, type PremiumConfig } from './premium'
+import { cancelWebSpeech, speakWebSpeechSegments } from './webspeech'
 
 export interface SpeakerConfig {
   /** Fallback rate when a voice doesn't set its own. */
@@ -32,9 +19,7 @@ function djb2(s: string): string {
   return (h >>> 0).toString(36)
 }
 
-function cacheKey(voice: VoiceAssignment, text: string): string {
-  return [voice.engine, voice.voiceId ?? 'default', voice.rate ?? 1, voice.direction ?? '', djb2(text)].join('|')
-}
+const asSegments = (text: string): LineSegment[] => [{ text }]
 
 export class Speaker {
   private currentAudio: HTMLAudioElement | null = null
@@ -49,34 +34,20 @@ export class Speaker {
     this.cfg = cfg
   }
 
-  /** Speak `text` with `voice`; resolves when finished, rejects AbortError if stopped. */
-  async speak(text: string, voice: VoiceAssignment, onStart?: () => void): Promise<void> {
-    this.stop()
-    const controller = new AbortController()
-    this.abort = controller
-    const signal = controller.signal
-    const rate = voice.rate ?? this.cfg.rate
-
-    if (voice.engine === 'webspeech') {
-      return speakWebSpeech(text, {
-        voiceId: voice.voiceId,
-        rate,
-        pitch: voice.pitch,
-        signal,
-        onStart,
-      })
-    }
-
-    // Blob-producing engines (kokoro / premium): cache → generate → play.
-    const key = cacheKey(voice, text)
-    const cached = await getCachedAudio(key)
-    const blob = cached ?? (await this.generate(key, voice, text))
-    if (signal.aborted) throw new DOMException('aborted', 'AbortError')
-    return this.playBlob(blob, rate, signal, onStart)
+  /** Cache key for a (possibly multi-segment) line under this voice/engine. */
+  private keyFor(voice: VoiceAssignment, segments: LineSegment[]): string {
+    const sig = segments.map((s) => `${s.direction ?? ''}:${s.text}`).join('¦')
+    const model = this.cfg.premium?.model ?? ''
+    return [voice.engine, voice.voiceId ?? 'default', voice.rate ?? this.cfg.rate, model, djb2(sig)].join('|')
   }
 
-  /** Speak a line with inline emotion shifts. Free voices vary pitch/rate per
-   *  segment; blob engines synthesise the rendered (tagged / plain) text. */
+  /** Speak `text` with `voice`; resolves when finished, rejects AbortError if stopped. */
+  speak(text: string, voice: VoiceAssignment, onStart?: () => void): Promise<void> {
+    return this.speakSegments(asSegments(text), voice, onStart)
+  }
+
+  /** Speak a line, honouring inline emotion shifts. Web Speech varies pitch/rate
+   *  per segment; blob engines (Kokoro / cloud) synthesise + cache the audio. */
   async speakSegments(segments: LineSegment[], voice: VoiceAssignment, onStart?: () => void): Promise<void> {
     this.stop()
     const controller = new AbortController()
@@ -85,48 +56,37 @@ export class Speaker {
     const rate = voice.rate ?? this.cfg.rate
 
     if (voice.engine === 'webspeech') {
-      return speakWebSpeechSegments(segments, {
-        voiceId: voice.voiceId,
-        rate,
-        pitch: voice.pitch,
-        signal,
-        onStart,
-      })
+      return speakWebSpeechSegments(segments, { voiceId: voice.voiceId, rate, pitch: voice.pitch, signal, onStart })
     }
 
-    const text = renderSegments(voice, segments)
-    const key = cacheKey(voice, text)
+    const key = this.keyFor(voice, segments)
     const cached = await getCachedAudio(key)
-    const blob = cached ?? (await this.generate(key, voice, text))
+    const blob = cached ?? (await this.generate(key, voice, segments))
     if (signal.aborted) throw new DOMException('aborted', 'AbortError')
     return this.playBlob(blob, rate, signal, onStart)
   }
 
   /** Generate + cache without playing (pre-warms an upcoming line). */
-  async pregenerate(text: string, voice: VoiceAssignment): Promise<void> {
-    if (voice.engine === 'webspeech') return // spoken live, nothing to cache
-    const key = cacheKey(voice, text)
-    if (await getCachedAudio(key)) return
-    await this.generate(key, voice, text)
+  pregenerate(text: string, voice: VoiceAssignment): Promise<void> {
+    return this.pregenerateSegments(asSegments(text), voice)
   }
 
   /** Pre-warm a segmented line (blob engines only). */
   async pregenerateSegments(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
-    if (voice.engine === 'webspeech') return
-    const text = renderSegments(voice, segments)
-    const key = cacheKey(voice, text)
+    if (voice.engine === 'webspeech') return // spoken live, nothing to cache
+    const key = this.keyFor(voice, segments)
     if (await getCachedAudio(key)) return
-    await this.generate(key, voice, text)
+    await this.generate(key, voice, segments)
   }
 
   /** Synthesise + cache a blob, sharing one job per key across concurrent callers. */
-  private generate(key: string, voice: VoiceAssignment, text: string): Promise<Blob> {
+  private generate(key: string, voice: VoiceAssignment, segments: LineSegment[]): Promise<Blob> {
     const existing = this.inflight.get(key)
     if (existing) return existing
     const job = (
       voice.engine === 'kokoro'
-        ? generateKokoro(text, voice.voiceId)
-        : generatePremium(text, voice, this.cfg.premium ?? null)
+        ? generateKokoro(plainText(segments), voice.voiceId)
+        : generatePremium(segments, voice, this.cfg.premium ?? null)
     )
       .then(async (blob) => {
         await putCachedAudio(key, blob)

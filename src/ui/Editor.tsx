@@ -5,8 +5,8 @@ import { mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/founta
 import { extractText, needsExtraction } from '../lib/ingest'
 import { characterKey, uid } from '../lib/util'
 import { getPlay, savePlay } from '../store/playsRepo'
-import { KOKORO_VOICES } from '../tts/kokoro'
-import { listWebSpeechVoices, type TTSVoice } from '../tts/webspeech'
+import { listVoicesForEngine } from '../tts/voices'
+import type { TTSVoice } from '../tts/webspeech'
 import { useApp } from './useApp'
 
 interface Override {
@@ -66,8 +66,7 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
 
   useEffect(() => {
     ;(async () => {
-      if (settings.tts === 'kokoro') setVoiceOptions(KOKORO_VOICES)
-      else setVoiceOptions(await listWebSpeechVoices())
+      setVoiceOptions(await listVoicesForEngine(settings.tts))
     })()
   }, [settings.tts])
 

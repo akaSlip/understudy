@@ -1,16 +1,34 @@
 import type { Theme } from '../lib/theme'
+import type { PremiumEngine, TTSEngine } from '../types'
 import { db } from './db'
 
 export type RecognizerKind = 'whisper' | 'webspeech'
 export type WhisperSize = 'tiny' | 'base'
 export type FreeTTSKind = 'webspeech' | 'kokoro'
 
+/** Locally-stored credentials/config for a cloud voice engine. Kept only in
+ *  this browser's IndexedDB — never sent anywhere but that engine's own API. */
+export interface PremiumSettings {
+  apiKey?: string
+  /** Azure only: the resource region, e.g. "uksouth". */
+  region?: string
+  /** Optional default voice id for the engine (per-character voices override). */
+  voiceId?: string
+  /** Optional model override, e.g. "gpt-4o-mini-tts" / "eleven_v3". */
+  model?: string
+  /** Optional relay URL (only if a browser call is CORS-blocked, e.g. ElevenLabs). */
+  proxyUrl?: string
+}
+
 export interface AppSettings {
   /** Speech recognizer used to score the actor's lines. */
   recognizer: RecognizerKind
   whisperModel: WhisperSize
-  /** Free TTS engine for the scene partner (premium engines slot in later). */
-  tts: FreeTTSKind
+  /** TTS engine for the scene partner: the free on-device voices, or a cloud
+   *  engine (which needs a key in `premium`). */
+  tts: TTSEngine
+  /** Per-engine cloud credentials/config, keyed by engine name. */
+  premium: Partial<Record<PremiumEngine, PremiumSettings>>
   /** Accuracy (0..1) at/above which a line is accepted. */
   passThreshold: number
   /** Exact-word matching (disables homophone tolerance). */
@@ -46,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   recognizer: 'whisper',
   whisperModel: 'tiny',
   tts: 'webspeech',
+  premium: {},
   passThreshold: 0.8,
   strict: false,
   autoAdvance: true,

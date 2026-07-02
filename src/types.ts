@@ -8,7 +8,9 @@
 // chosen character are the ones they must *speak and be scored on*, and every
 // other dialogue beat is *performed by TTS*.
 
-export type TTSEngine = 'webspeech' | 'kokoro' | 'elevenlabs' | 'hume' | 'openai'
+export type TTSEngine = 'webspeech' | 'kokoro' | 'elevenlabs' | 'openai' | 'azure' | 'gemini'
+/** The cloud engines that need an API key (a subset of TTSEngine). */
+export type PremiumEngine = 'elevenlabs' | 'openai' | 'azure' | 'gemini'
 
 export interface VoiceAssignment {
   engine: TTSEngine

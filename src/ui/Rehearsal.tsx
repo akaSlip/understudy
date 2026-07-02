@@ -17,9 +17,9 @@ import {
 } from '../lib/sections'
 import type { AppSettings } from '../store/settings'
 import { Speaker } from '../tts/speaker'
-import { buildVoiceMap } from '../tts/voices'
-import { KOKORO_VOICES } from '../tts/kokoro'
-import { listWebSpeechVoices, type TTSVoice } from '../tts/webspeech'
+import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
+import { isPremiumEngine, type PremiumConfig } from '../tts/premium'
+import type { TTSVoice } from '../tts/webspeech'
 import { RehearsalEngine, type RehearsalState } from '../rehearsal/engine'
 import { CompatBanner } from './CompatBanner'
 import { useApp } from './useApp'
@@ -101,7 +101,10 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
       await recognizer.init((p) =>
         setLoadMsg(`Loading speech model… ${p.progress != null ? Math.round(p.progress * 100) + '%' : ''}`),
       )
-      const speaker = new Speaker({ rate: settings.ttsRate, premium: null })
+      const premium: PremiumConfig | null = isPremiumEngine(settings.tts)
+        ? { engine: settings.tts, ...(settings.premium[settings.tts] ?? {}) }
+        : null
+      const speaker = new Speaker({ rate: settings.ttsRate, premium })
       const voiceMap = await buildVoiceMap(play.characters, settings.tts, settings.ttsRate, myCharId)
       setVoiceAssignments(new Map(voiceMap))
       const narratorVoice = { engine: settings.tts, rate: settings.ttsRate }
@@ -819,7 +822,7 @@ function VoicePanel(props: {
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const opts = engine === 'kokoro' ? KOKORO_VOICES.map((v) => ({ id: v.id, label: v.label })) : await listWebSpeechVoices()
+      const opts = await listVoicesForEngine(engine)
       if (alive) setOptions(opts)
     })()
     return () => {
