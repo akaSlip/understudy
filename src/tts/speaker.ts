@@ -2,7 +2,7 @@
 // right engine, caches blob-producing engines, and gives clean stop/abort.
 
 import type { LineSegment, VoiceAssignment } from '../types'
-import { getCachedAudio, putCachedAudio } from '../store/audioCache'
+import { getCachedAudio, hasCachedAudio, putCachedAudio } from '../store/audioCache'
 import { generateKokoro } from './kokoro'
 import { generatePremium, isPremiumEngine, plainText, type PremiumConfig } from './premium'
 import { cancelWebSpeech, speakWebSpeechSegments } from './webspeech'
@@ -75,11 +75,13 @@ export class Speaker {
     return this.pregenerateSegments(asSegments(text), voice)
   }
 
-  /** Pre-warm a segmented line (blob engines only). */
+  /** Pre-warm a segmented line (blob engines only). Uses the no-touch existence
+   *  probe so prefetching upcoming lines doesn't outrank PLAYED audio in the
+   *  cache's LRU order. */
   async pregenerateSegments(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
     if (voice.engine === 'webspeech') return // spoken live, nothing to cache
     const key = this.keyFor(voice, segments)
-    if (await getCachedAudio(key)) return
+    if (await hasCachedAudio(key)) return
     await this.generate(key, voice, segments)
   }
 

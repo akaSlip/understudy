@@ -106,7 +106,10 @@ export class MicVAD {
         this.noiseFloor = this.noiseFloor * 0.95 + rms * 0.05
       }
 
-      const threshold = Math.max(0.012, this.noiseFloor * 3)
+      // With AGC off (needed for honest projection measurement) quiet mics get
+      // no hardware boost, so the absolute floor must be low; the adaptive
+      // noiseFloor×3 term still rejects ambient noise in louder rooms.
+      const threshold = Math.max(0.006, this.noiseFloor * 3)
       const voiced = rms > threshold
 
       if (voiced) {
@@ -145,7 +148,9 @@ export class MicVAD {
     if (voiced < minSpeechSec) return // too short — discard blip
     const merged = mergeFrames(frames)
     const audio = rate === TARGET_RATE ? merged : resampleLinear(merged, rate, TARGET_RATE)
-    this.opts.onUtterance(audio)
+    // Peak-normalise so a quiet mic (no AGC) still gives Whisper a healthy
+    // signal — recognition quality shouldn't depend on hardware gain.
+    this.opts.onUtterance(normalizePeak(audio))
   }
 
   stop(): void {
@@ -187,6 +192,21 @@ function mergeFrames(frames: Float32Array[]): Float32Array {
     off += f.length
   }
   return out
+}
+
+/** Scale audio so its peak sits near `target` (gain-limited so silence/noise
+ *  isn't blown up). In-place; returns the same array. */
+function normalizePeak(a: Float32Array, target = 0.9, maxGain = 20): Float32Array {
+  let peak = 0
+  for (let i = 0; i < a.length; i++) {
+    const v = Math.abs(a[i])
+    if (v > peak) peak = v
+  }
+  if (peak === 0 || peak >= target) return a
+  const gain = Math.min(maxGain, target / peak)
+  if (gain <= 1.05) return a // not worth touching
+  for (let i = 0; i < a.length; i++) a[i] *= gain
+  return a
 }
 
 function resampleLinear(input: Float32Array, from: number, to: number): Float32Array {

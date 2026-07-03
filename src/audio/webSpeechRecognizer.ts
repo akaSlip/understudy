@@ -62,9 +62,19 @@ export class WebSpeechRecognizer implements Recognizer {
     return Promise.resolve()
   }
 
-  start(handlers: RecognizerHandlers): Promise<void> {
+  async start(handlers: RecognizerHandlers): Promise<void> {
     const Ctor = getCtor()
-    if (!Ctor) return Promise.reject(new Error('Web Speech API not supported'))
+    if (!Ctor) throw new Error('Web Speech API not supported')
+    // Surface the mic-permission prompt NOW, at the setup gate ("Requesting
+    // microphone…"), not seconds into the scene when the first line arms. The
+    // stream is released immediately; Web Speech manages its own capture, and
+    // the grant is remembered.
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true })
+      probe.getTracks().forEach((t) => t.stop())
+    } catch {
+      throw new Error('Microphone access was denied — allow it in the browser and try again.')
+    }
     this.active = true
     this.fatal = false
     const rec = new Ctor()
@@ -104,7 +114,10 @@ export class WebSpeechRecognizer implements Recognizer {
       if (this.active && this.listen && !this.fatal) this.startSession()
     }
     this.rec = rec
-    return Promise.resolve() // capture starts when the first line arms
+    // Capture sessions start when a line arms (privacy: nothing streams to the
+    // cloud engine during partner speech). Trade-off: rec.start() has engine
+    // warm-up latency, so `setActive(false)` below uses the graceful stop()
+    // path and arming reuses a still-open session where possible.
   }
 
   private startSession(): void {
@@ -118,18 +131,23 @@ export class WebSpeechRecognizer implements Recognizer {
   }
 
   /** Arm/disarm capture. The session itself is started/stopped — not just
-   *  muted — so audio never streams to the cloud engine while disarmed. */
+   *  muted — so audio never streams to the cloud engine while disarmed. Disarm
+   *  uses stop() (graceful) rather than abort(): if the actor's next line arms
+   *  before the session has fully wound down, the still-open session is reused
+   *  (running stays true until onend), avoiding a cold-start that could clip
+   *  the line's first syllable. */
   setActive(active: boolean): void {
     this.listen = active
     if (active) {
       this.startSession()
     } else if (this.rec && this.running) {
       try {
-        this.rec.abort()
+        this.rec.stop()
       } catch {
         /* ignore */
       }
-      this.running = false
+      // Don't flip `running` here — onend does, and if we re-arm before then,
+      // the onend handler restarts the session for us (listen is re-checked).
     }
   }
 

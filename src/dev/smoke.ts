@@ -142,8 +142,10 @@ check('FTLN prefixes stripped', !/F[TI]LN/.test(cleanedF), cleanedF)
 check('trailing margin numbers stripped', !/air\. 25/.test(cleanedF) && /casing air\./.test(cleanedF))
 check('page-number-only lines dropped', !/^\s*46\s*$/m.test(cleanedF))
 check('the spoken words survive', /cabined, cribbed, confined/.test(cleanedF))
-const normalScript = 'JACK: I have 25 pounds.\n\nALGERNON: Lend me 5.'
-check('non-Folger text untouched (no FTLN signature)', cleanEditionArtifacts(normalScript) === normalScript)
+// The non-Folger case must include a standalone-number line — the exact input
+// the cleanup must NOT touch without the FTLN signature.
+const normalScript = 'JACK: I have 25 pounds.\n\n42\n\nALGERNON: Lend me 5.'
+check('non-Folger text untouched (incl. standalone-number lines)', cleanEditionArtifacts(normalScript) === normalScript)
 
 console.log('\n— inline delivery directions —')
 const shift = parseScript('LEAR: (bewildered) Who is it can tell me who I am? (angrily) Does any here know me? (defeated) I should be false persuaded I had daughters.')

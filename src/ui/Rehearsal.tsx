@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { Route } from '../App'
 import type { Beat, Character, Play, TTSEngine, VoiceAssignment } from '../types'
 import { createRecognizer } from '../audio/recognizerFactory'
@@ -35,7 +35,9 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
   const [starting, setStarting] = useState(false)
   const [loadMsg, setLoadMsg] = useState('')
   const [state, setState] = useState<RehearsalState | null>(null)
-  const [micLevel, setMicLevel] = useState(0)
+  // Mic level updates ~15×/s while listening — kept OUT of React state so only
+  // the MicMeter (which subscribes) re-renders per tick, not this whole tree.
+  const levelStore = useRef(createLevelStore()).current
   const [voiceAssignments, setVoiceAssignments] = useState<Map<string, VoiceAssignment>>(new Map())
 
   const engineRef = useRef<RehearsalEngine | null>(null)
@@ -51,11 +53,17 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
     })()
   }, [playId])
 
+  // The remembered-section key: derived ONCE so the save and load paths can
+  // never drift apart (a mismatch would silently stop sections round-tripping).
+  const myName = useMemo(
+    () => play?.characters.find((c) => c.id === myCharId)?.name ?? myCharId,
+    [play, myCharId],
+  )
+
   // Load the remembered section for this play + part (falls back to whole play).
   useEffect(() => {
     if (!play || !myCharId) return
     let cancelled = false
-    const myName = play.characters.find((c) => c.id === myCharId)?.name ?? myCharId
     ;(async () => {
       const saved = await loadSection(play.id, myName, myCharId)
       if (!cancelled) setSpec(saved ?? DEFAULT_SECTION)
@@ -63,7 +71,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
     return () => {
       cancelled = true
     }
-  }, [play, myCharId])
+  }, [play, myCharId, myName])
 
   // Tear down on unmount.
   useEffect(() => {
@@ -112,7 +120,6 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
       setVoiceAssignments(new Map(voiceMap))
       const narratorVoice = { engine: settings.tts, rate: settings.ttsRate }
       // Persist this section for one-click repeat rehearsal of the same scene.
-      const myName = play.characters.find((c) => c.id === myCharId)?.name ?? myCharId
       void saveSection(play.id, myName, effSpec)
       const engine = new RehearsalEngine({
         play,
@@ -124,9 +131,9 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         settings,
         onUpdate: (s) => {
           setState(s)
-          if (!s.listening) setMicLevel(0) // let the meter settle between lines
+          if (!s.listening) levelStore.set(0) // let the meter settle between lines
         },
-        onLevel: setMicLevel,
+        onLevel: (l) => levelStore.set(l),
         beatOrder: order,
       })
       engineRef.current = engine
@@ -209,7 +216,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
       play={play}
       state={state}
       settings={settings}
-      micLevel={micLevel}
+      levelStore={levelStore}
       engine={engineRef.current!}
       myCharId={myCharId}
       voiceAssignments={voiceAssignments}
@@ -489,7 +496,7 @@ function RunningView(props: {
   play: Play
   state: RehearsalState
   settings: AppSettings
-  micLevel: number
+  levelStore: LevelStore
   engine: RehearsalEngine
   myCharId: string
   voiceAssignments: Map<string, VoiceAssignment>
@@ -497,7 +504,7 @@ function RunningView(props: {
   onStop: () => void
   onExit: () => void
 }) {
-  const { play, state, settings, engine, micLevel } = props
+  const { play, state, settings, engine, levelStore } = props
   const nameById = useMemo(() => new Map(play.characters.map((c) => [c.id, c.name])), [play])
   const [autoCue, setAutoCue] = useState(settings.autoAdvance)
   const [showVoices, setShowVoices] = useState(false)
@@ -533,7 +540,7 @@ function RunningView(props: {
             <div className="beat-role you">
               YOU — {speaker}
               {state.listening && (
-                <MicMeter level={micLevel} coaching={settings.projectionCoaching} target={settings.projectionTarget} />
+                <MicMeter store={levelStore} coaching={settings.projectionCoaching} target={settings.projectionTarget} />
               )}
             </div>
             {direction && <div className="direction-note">{direction}</div>}
@@ -746,7 +753,33 @@ function SummaryView(props: {
  *  pause still reads as "listening"), and swell with your actual voice level.
  *  With projection coaching on, a target marker appears and the bars turn green
  *  once you're projecting past it. */
-function MicMeter({ level, coaching, target = 0.5 }: { level: number; coaching?: boolean; target?: number }) {
+/** Tiny external store for the live mic level: updated ~15×/s by the VAD, read
+ *  only by the MicMeter via useSyncExternalStore — so the frequent ticks never
+ *  re-render the rest of the rehearsal tree. */
+interface LevelStore {
+  get(): number
+  set(l: number): void
+  subscribe(fn: () => void): () => void
+}
+function createLevelStore(): LevelStore {
+  let level = 0
+  const listeners = new Set<() => void>()
+  return {
+    get: () => level,
+    set(l: number) {
+      if (l === level) return
+      level = l
+      listeners.forEach((fn) => fn())
+    },
+    subscribe(fn: () => void) {
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    },
+  }
+}
+
+function MicMeter({ store, coaching, target = 0.5 }: { store: LevelStore; coaching?: boolean; target?: number }) {
+  const level = useSyncExternalStore(store.subscribe, store.get)
   const lvl = Math.max(0, Math.min(1, level))
   const over = coaching ? lvl >= target : false
   return (

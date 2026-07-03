@@ -28,17 +28,25 @@ function keyToUrl(key: string): string {
   return `https://understudy.audio/${encodeURIComponent(key)}`
 }
 
+// The index is held IN MEMORY (this module is a singleton) and persisted to
+// localStorage only on writes/eviction — never on the read/playback hot path.
+// A single in-memory array also removes read/write interleaving drift.
+let memIndex: IndexEntry[] | null = null
+
 function loadIndex(): IndexEntry[] {
+  if (memIndex) return memIndex
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(INDEX_KEY) : null
     const parsed = raw ? (JSON.parse(raw) as IndexEntry[]) : []
-    return Array.isArray(parsed) ? parsed : []
+    memIndex = Array.isArray(parsed) ? parsed : []
   } catch {
-    return []
+    memIndex = []
   }
+  return memIndex
 }
 
 function saveIndex(index: IndexEntry[]): void {
+  memIndex = index
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(INDEX_KEY, JSON.stringify(index))
   } catch {
@@ -58,14 +66,27 @@ export async function getCachedAudio(key: string): Promise<Blob | null> {
   }
 }
 
-/** Move a key to the tail of the index (most recently used). */
+/** Existence check WITHOUT refreshing recency — for prefetch probes, so that
+ *  merely peeking at upcoming lines can't out-rank genuinely played audio in
+ *  the LRU order. */
+export async function hasCachedAudio(key: string): Promise<boolean> {
+  if (!hasCacheAPI()) return memFallback.has(key)
+  try {
+    const cache = await caches.open(CACHE_NAME)
+    return (await cache.match(keyToUrl(key))) !== undefined
+  } catch {
+    return memFallback.has(key)
+  }
+}
+
+/** Move a key to the tail of the in-memory index (most recently used). The
+ *  new order reaches localStorage with the next write — no I/O on reads. */
 function touchIndex(key: string): void {
   const index = loadIndex()
   const at = index.findIndex((e) => e.key === key)
   if (at < 0 || at === index.length - 1) return
   const [entry] = index.splice(at, 1)
   index.push(entry)
-  saveIndex(index)
 }
 
 export async function putCachedAudio(key: string, blob: Blob): Promise<void> {
@@ -82,8 +103,12 @@ export async function putCachedAudio(key: string, blob: Blob): Promise<void> {
     const cache = await caches.open(CACHE_NAME)
     await cache.put(keyToUrl(key), new Response(blob, { headers: { 'Content-Type': blob.type || 'audio/wav' } }))
 
-    // Track size and evict oldest entries until back within both limits.
-    const index = loadIndex().filter((e) => e.key !== key)
+    // Track size and evict oldest entries until back within both limits. The
+    // SHARED in-memory index is mutated in place so concurrent puts/touches
+    // interleave on one array instead of clobbering each other's copies.
+    const index = loadIndex()
+    const at = index.findIndex((e) => e.key === key)
+    if (at >= 0) index.splice(at, 1)
     index.push({ key, size: blob.size })
     let total = index.reduce((n, e) => n + e.size, 0)
     while (index.length > MAX_ENTRIES || total > MAX_BYTES) {

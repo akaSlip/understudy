@@ -84,6 +84,15 @@ async function run(audio: Float32Array): Promise<string> {
 }
 
 async function transcribe(id: number, audio: Float32Array): Promise<void> {
+  // A (re)load may be in flight — e.g. the one-time WebGPU→WASM rebuild below.
+  // Wait for it rather than dropping the actor's utterance with an error.
+  if (!transcriber && loading) {
+    try {
+      await loading
+    } catch {
+      /* fall through to the guard */
+    }
+  }
   if (!transcriber) {
     post({ type: 'error', id, message: 'Recognizer not loaded' })
     return

@@ -399,14 +399,14 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
   let hh: { onFinal: (t: string) => void; onError: (e: Error) => void } | undefined
   const r = { ...recognizer, async start(h: { onFinal: (t: string) => void; onError: (e: Error) => void }) { hh = h } }
   const spoken: string[] = []
+  // Reuse the module-level speaker mock; override only the behaviour under test.
   const sp = {
-    async speak() {},
+    ...speaker,
     speakSegments(_segs: { text: string }[], voice: { engine: string }) {
       spoken.push(voice.engine)
       if (opts.partnerFails && voice.engine !== 'webspeech') return Promise.reject(new Error('cloud voice 401'))
       return opts.partnerNeverEnds ? new Promise<void>(() => {}) : Promise.resolve()
     },
-    stop() {}, async pregenerate() {}, async pregenerateSegments() {},
   }
   let st: RehearsalState = {} as RehearsalState
   const eng = new RehearsalEngine({
@@ -472,6 +472,73 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
   check('H2: error shown when it happens', state().error === 'transient blip')
   say('alpha beta gamma'); await tick()
   check('H2: error cleared once a line passes', state().error === undefined, state().error)
+  eng.dispose()
+}
+
+{
+  // Review fix: turning auto-cue off must NOT cancel the stage-direction
+  // advance (it shares the advanceTimer field with the auto-cue advance).
+  const p: Play = {
+    id: 'sg', title: 'sg', characters: play.characters,
+    beats: [
+      { id: 'hd', kind: 'heading', text: 'ACT I' },
+      { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
+    ],
+    source: 'manual', createdAt: 0, updatedAt: 0,
+  }
+  let st: RehearsalState = {} as RehearsalState
+  const eng = new RehearsalEngine({
+    play: p, myCharacterId: 'A',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    speaker: speaker as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognizer: recognizer as any,
+    voiceMap: new Map(), narratorVoice: { engine: 'webspeech' },
+    settings: { ...settings, autoAdvance: true },
+    onUpdate: (s) => { st = s },
+  })
+  await eng.start(); await tick()
+  check('sits on the stage beat first', st.phase === 'stage' && st.beat?.id === 'hd', st.phase)
+  eng.setAutoCue(false) // user toggles auto-cue during the 1100ms stage pause
+  await new Promise((r) => setTimeout(r, 1300))
+  check('stage still advances after auto-cue was turned off', st.beat?.id === 'm1', { phase: st.phase, beat: st.beat?.id })
+  eng.dispose()
+}
+
+{
+  // Review fix: failed stage NARRATION gets the same treatment as a failed
+  // partner line — error surfaced, system-voice fallback, flow continues.
+  const p: Play = {
+    id: 'nr', title: 'nr', characters: play.characters,
+    beats: [
+      { id: 'st1', kind: 'action', text: 'Enter the GHOST.' },
+      { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
+    ],
+    source: 'manual', createdAt: 0, updatedAt: 0,
+  }
+  const spoken: string[] = []
+  const sp = {
+    ...speaker,
+    speakSegments(_s: { text: string }[], voice: { engine: string }) {
+      spoken.push(voice.engine)
+      return voice.engine === 'webspeech' ? Promise.resolve() : Promise.reject(new Error('narrator 401'))
+    },
+  }
+  let st: RehearsalState = {} as RehearsalState
+  const eng = new RehearsalEngine({
+    play: p, myCharacterId: 'A',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    speaker: sp as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognizer: recognizer as any,
+    voiceMap: new Map(), narratorVoice: { engine: 'elevenlabs' },
+    settings: { ...settings, autoAdvance: true, speakStageDirections: true },
+    onUpdate: (s) => { st = s },
+  })
+  await eng.start(); await new Promise((r) => setTimeout(r, 50))
+  check('narration failure falls back to the system voice', spoken.includes('webspeech'), spoken)
+  check('narration failure surfaces an error', typeof st.error === 'string', st.error)
+  check('flow continues past the narrated stage beat', st.beat?.id === 'm1', st.beat?.id)
   eng.dispose()
 }
 

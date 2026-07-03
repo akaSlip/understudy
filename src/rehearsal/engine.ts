@@ -2,11 +2,11 @@
 // play, one scene, or just the actor's lines with cue context — see lib/sections):
 //   • partner dialogue  → TTS performs it, then advances
 //   • stage/heading      → shown (optionally narrated), then advances
-//   • the actor's line   → listen, score against the known line, reveal on
-//                          "stuck", and "keep the flow going" past a fumble.
+//   • the actor's line   → listen, score against the known line, and reveal the
+//                          line as a prompt when they go quiet or stall.
 // The engine is UI-agnostic: it pushes immutable snapshots via onUpdate.
 
-import type { Beat, LineScore, Play, VoiceAssignment } from '../types'
+import type { Beat, LineScore, LineSegment, Play, VoiceAssignment } from '../types'
 import type { Recognizer } from '../audio/recognizer'
 import type { AppSettings } from '../store/settings'
 import type { Speaker } from '../tts/speaker'
@@ -104,10 +104,10 @@ export class RehearsalEngine {
   private revealed = false
   private speakingCharId: string | undefined
   private attempts: LineAttempt[] = []
-  /** Index into `attempts` per beat id, so a revisited line updates its entry
-   *  instead of appending a duplicate (which would inflate the summary counts). */
-  private attemptIndexByBeat = new Map<string, number>()
   private error: string | undefined
+  /** True while `error` describes a TTS failure (vs a recognizer one) — lets a
+   *  recovered voice clear its own notice without hiding recognizer errors. */
+  private ttsError = false
 
   // Projection stats for the current line.
   private levelSum = 0
@@ -116,6 +116,7 @@ export class RehearsalEngine {
   private autoCueOverride: boolean | undefined
 
   private stuckTimer?: ReturnType<typeof setTimeout>
+  private revealBackstopTimer?: ReturnType<typeof setTimeout>
   private advanceTimer?: ReturnType<typeof setTimeout>
 
   private readonly beats: Beat[]
@@ -183,8 +184,10 @@ export class RehearsalEngine {
     if (on && this.phase === 'scored') {
       this.clearTimers()
       this.advanceTimer = setTimeout(() => this.goToPos(this.pos + 1), 400)
-    } else if (!on && this.advanceTimer) {
-      // Turning it off must also cancel an advance that's already scheduled.
+    } else if (!on && this.advanceTimer && this.phase === 'scored') {
+      // Turning it off must also cancel an advance that's already scheduled —
+      // but ONLY the auto-cue one: on a stage beat the same timer field holds
+      // the stage-direction advance, which is not governed by auto-cue.
       clearTimeout(this.advanceTimer)
       this.advanceTimer = undefined
     }
@@ -296,10 +299,9 @@ export class RehearsalEngine {
       this.phase = 'stage'
       this.emit()
       if (this.deps.settings.speakStageDirections && beat.text.trim()) {
-        this.speak(beat.text, this.deps.narratorVoice, () => {}).then(
+        this.performLine(beatSegments(beat), this.deps.narratorVoice).then(
           () => this.afterStage(),
-          // Narration failed (e.g. cloud voice) — keep the flow going regardless.
-          () => this.afterStage(),
+          () => {}, // aborted by a transition
         )
       } else {
         this.advanceTimer = setTimeout(() => this.afterStage(), 1100)
@@ -323,33 +325,47 @@ export class RehearsalEngine {
     this.speakingCharId = beat.characterId
     this.emit()
     const voice = this.deps.voiceMap.get(beat.characterId!) ?? this.deps.narratorVoice
-    const advance = () => {
-      if (this.running && this.phase === 'partner') this.goToPos(this.pos + 1)
-    }
-    this.deps.speaker.speakSegments(beatSegments(beat), voice, () => this.emit()).then(advance, (e) => {
-      // Aborted by a transition (pause / next / setVoice) — nothing to do.
-      if ((e as { name?: string })?.name === 'AbortError') return
-      if (!this.running || this.phase !== 'partner') return
-      // A real generation failure (bad API key, offline, rate limit): surface
-      // the reason and fall back to the free system voice so the rehearsal is
-      // never silently frozen on a partner line.
-      this.error = e instanceof Error ? e.message : String(e)
-      this.emit()
-      const fallback: VoiceAssignment = { engine: 'webspeech', rate: voice.rate }
-      this.deps.speaker.speakSegments(beatSegments(beat), fallback, () => this.emit()).then(advance, (e2) => {
-        if ((e2 as { name?: string })?.name === 'AbortError') return
-        // Even the fallback failed (no speech synthesis at all) — keep the flow.
-        advance()
-      })
-    })
+    this.performLine(beatSegments(beat), voice).then(
+      () => {
+        if (this.running && this.phase === 'partner') this.goToPos(this.pos + 1)
+      },
+      () => {}, // aborted by a transition (pause / next / setVoice)
+    )
   }
 
   private afterStage(): void {
     if (this.running && this.phase === 'stage') this.goToPos(this.pos + 1)
   }
 
-  private speak(text: string, voice: VoiceAssignment, onStart: () => void): Promise<void> {
-    return this.deps.speaker.speak(text, voice, onStart)
+  /** Speak a line with graceful degradation, shared by partner dialogue and
+   *  stage narration: a real generation failure (bad API key, offline, rate
+   *  limit) surfaces the reason and retries once with the free system voice, so
+   *  a broken cloud voice never freezes or silences the rehearsal. Resolves
+   *  once spoken (either voice) or unspeakable; rejects only when aborted by a
+   *  transition. */
+  private async performLine(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
+    const isAbort = (e: unknown) => (e as { name?: string })?.name === 'AbortError'
+    try {
+      await this.deps.speaker.speakSegments(segments, voice, () => this.emit())
+      // The primary voice works (again) — retire any stale fallback notice
+      // (but never a recognizer error, which this says nothing about).
+      if (this.ttsError) {
+        this.ttsError = false
+        this.error = undefined
+      }
+    } catch (e) {
+      if (isAbort(e)) throw e
+      this.error = `Voice playback failed — using the system voice. (${e instanceof Error ? e.message : String(e)})`
+      this.ttsError = true
+      this.emit()
+      if (voice.engine === 'webspeech') return // no different voice to fall back to
+      try {
+        await this.deps.speaker.speakSegments(segments, { engine: 'webspeech', rate: voice.rate }, () => this.emit())
+      } catch (e2) {
+        if (isAbort(e2)) throw e2
+        // Even the fallback failed (no speech synthesis at all) — keep the flow.
+      }
+    }
   }
 
   /** Fire-and-forget pre-generation of the next `count` scene-partner lines
@@ -408,6 +424,7 @@ export class RehearsalEngine {
     this.deps.recognizer.setActive(false) // line accepted — stop listening
     this.phase = 'scored'
     this.error = undefined // things are working again — drop any stale banner
+    this.ttsError = false
     this.recordAttemptIfMyLine()
     this.emit()
     if (this.autoCue()) {
@@ -417,8 +434,21 @@ export class RehearsalEngine {
 
   // -- timers ---------------------------------------------------------------
 
+  /** Arm the per-line timers: the sliding stuck watchdog plus an ABSOLUTE
+   *  reveal backstop. The stuck timer re-arms on every recognised chunk, so an
+   *  actor producing (even wrong) speech every few seconds could slide it
+   *  forever — the backstop guarantees the full-line prompt still appears. */
   private armTimers(): void {
     this.armStuckTimer()
+    if (this.revealBackstopTimer) clearTimeout(this.revealBackstopTimer)
+    const ms = Math.max(9000, this.deps.settings.stuckTimeoutMs * 3)
+    this.revealBackstopTimer = setTimeout(() => {
+      if ((this.phase === 'listening' || this.phase === 'stuck') && !this.revealed) {
+        this.revealed = true
+        if (this.phase === 'listening') this.phase = 'stuck'
+        this.emit()
+      }
+    }, ms)
   }
 
   private armStuckTimer(): void {
@@ -435,8 +465,8 @@ export class RehearsalEngine {
   }
 
   private clearTimers(): void {
-    for (const t of [this.stuckTimer, this.advanceTimer]) if (t) clearTimeout(t)
-    this.stuckTimer = this.advanceTimer = undefined
+    for (const t of [this.stuckTimer, this.revealBackstopTimer, this.advanceTimer]) if (t) clearTimeout(t)
+    this.stuckTimer = this.revealBackstopTimer = this.advanceTimer = undefined
   }
 
   // -- bookkeeping ----------------------------------------------------------
@@ -451,9 +481,10 @@ export class RehearsalEngine {
     const beat = this.curBeat()!
     const next = this.buildAttempt(beat)
     // One entry per line, however it was reached (retry, Prev navigation, …) —
-    // duplicates would inflate the summary's counts and averages.
-    const at = this.attemptIndexByBeat.get(beat.id)
-    if (at !== undefined) {
+    // duplicates would inflate the summary's counts and averages. The array is
+    // one entry per distinct line, so a linear scan is plenty.
+    const at = this.attempts.findIndex((a) => a.beatId === beat.id)
+    if (at >= 0) {
       const prev = this.attempts[at]
       // Keep the best attempt for a line — never downgrade a pass on retry.
       if (next.accuracy >= prev.accuracy || (!prev.passed && next.passed)) {
@@ -461,10 +492,7 @@ export class RehearsalEngine {
       }
       return
     }
-    if (this.transcript || this.score) {
-      this.attemptIndexByBeat.set(beat.id, this.attempts.length)
-      this.attempts.push(next)
-    }
+    if (this.transcript || this.score) this.attempts.push(next)
   }
 
   private buildAttempt(beat: Beat): LineAttempt {

@@ -354,9 +354,11 @@ function PremiumVoiceConfig(props: {
   const [test, setTest] = useState<'idle' | 'testing' | 'ok' | string>('idle')
   const speakerRef = useRef<Speaker | null>(null)
 
-  // A changed key/voice invalidates a previous "Sounds good ✓".
+  // A changed key/voice invalidates a previous "Sounds good ✓" — and any test
+  // playback still talking is now stale too, so stop it.
   useEffect(() => {
     setTest('idle')
+    speakerRef.current?.stop()
   }, [cfg.apiKey, cfg.region, cfg.voiceId, cfg.proxyUrl])
 
   // Stop any test playback when the panel unmounts or the engine changes.
