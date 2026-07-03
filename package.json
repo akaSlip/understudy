@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "esbuild src/dev/smoke.ts --bundle --format=esm --platform=node --external:kokoro-js --external:@huggingface/transformers --external:pdfjs-dist --external:pdfjs-dist/* --external:tesseract.js --external:microsoft-cognitiveservices-speech-sdk --outfile=node_modules/.cache/understudy-smoke.mjs && node node_modules/.cache/understudy-smoke.mjs",
     "test:engine": "esbuild src/dev/engineSmoke.ts --bundle --format=esm --platform=node --external:kokoro-js --external:@huggingface/transformers --external:pdfjs-dist --external:pdfjs-dist/* --external:tesseract.js --external:microsoft-cognitiveservices-speech-sdk --outfile=node_modules/.cache/understudy-engine.mjs && node node_modules/.cache/understudy-engine.mjs",
-    "test": "npm run typecheck && npm run test:unit && npm run test:engine"
+    "test": "npm run typecheck && npm run test:unit && npm run test:engine",
+    "package": "npm run build && tar -czf understudy-app.tar.gz -C dist . && ls -lh understudy-app.tar.gz"
   },
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.2.9",
@@ -35,6 +36,9 @@
     "vite-plugin-pwa": "^0.21.1"
   },
   "overrides": {
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "onnxruntime-node": "file:./stubs/empty-stub",
+    "sharp": "file:./stubs/empty-stub",
+    "@napi-rs/canvas": "file:./stubs/empty-stub"
   }
 }

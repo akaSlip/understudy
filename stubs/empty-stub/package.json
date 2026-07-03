@@ -1,0 +1,6 @@
+{
+  "name": "empty-stub",
+  "version": "0.0.0",
+  "description": "Empty stand-in for Node-only transitive dependencies (onnxruntime-node, sharp, @napi-rs/canvas) that a browser-only app never loads. Saves ~1.2 GB of node_modules.",
+  "main": "index.js"
+}
