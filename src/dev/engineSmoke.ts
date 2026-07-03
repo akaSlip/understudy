@@ -562,5 +562,47 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
   eng.dispose()
 }
 
+{
+  // Character personality: colours every span the character speaks; an inline
+  // {vocal} cue overrides it for its own words.
+  const p: Play = {
+    id: 'pers', title: 'pers', characters: play.characters,
+    beats: [
+      { id: 'q1', kind: 'dialogue', characterId: 'B', text: 'Plain span. Angry span.', segments: [
+        { text: 'Plain span.' },
+        { text: 'Angry span.', direction: 'furious' },
+      ] },
+      { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
+    ],
+    source: 'manual', createdAt: 0, updatedAt: 0,
+  }
+  const seen: Array<{ text: string; direction?: string }[]> = []
+  const sp = {
+    ...speaker,
+    speakSegments(segs: { text: string; direction?: string }[]) {
+      seen.push(segs)
+      return Promise.resolve()
+    },
+  }
+  let st: RehearsalState = {} as RehearsalState
+  const eng = new RehearsalEngine({
+    play: p, myCharacterId: 'A',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    speaker: sp as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognizer: recognizer as any,
+    voiceMap: new Map([['B', { engine: 'webspeech' as const, rate: 1, direction: 'pompous and clipped' }]]),
+    narratorVoice: { engine: 'webspeech' },
+    settings: { ...settings, autoAdvance: true },
+    onUpdate: (s) => { st = s },
+  })
+  await eng.start(); await new Promise((r) => setTimeout(r, 50))
+  const spoken = seen[0] ?? []
+  check('personality fills spans with no inline cue', spoken[0]?.direction === 'pompous and clipped', spoken)
+  check('inline vocal cue overrides the personality for its span', spoken[1]?.direction === 'furious', spoken)
+  check('flow reaches the actor line as usual', st.beat?.id === 'm1', st.beat?.id)
+  eng.dispose()
+}
+
 console.log(`\n${fail === 0 ? 'ENGINE OK' : fail + ' FAILURE(S)'}`)
 if (fail > 0 && typeof process !== 'undefined') process.exitCode = 1

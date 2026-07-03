@@ -5,6 +5,7 @@ import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } f
 import { extractText, needsExtraction } from '../lib/ingest'
 import { characterKey, uid } from '../lib/util'
 import { getPlay, savePlay } from '../store/playsRepo'
+import { isPremiumEngine } from '../tts/premium'
 import { listVoicesForEngine } from '../tts/voices'
 import type { TTSVoice } from '../tts/webspeech'
 import { useApp } from './useApp'
@@ -54,6 +55,10 @@ const VOCAL_SAMPLES = [
 
 export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void }) {
   const { settings, reloadPlays } = useApp()
+  // A standing character personality only genuinely changes speech mannerism on
+  // the instruction-steerable cloud voices — the free voices ignore it, so the
+  // field is hidden there rather than offering a placebo.
+  const personalityWorks = isPremiumEngine(settings.tts)
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
   const [scriptText, setScriptText] = useState('')
@@ -278,7 +283,10 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
           <h3>Cast &amp; voices</h3>
           <p className="muted small">
             Voices use the engine selected in Settings (<strong>{settings.tts}</strong>). Leave “Auto” to cast distinct,
-            gender-matched voices automatically. Delivery notes guide the expressive cloud voices.
+            gender-matched voices automatically.
+            {personalityWorks
+              ? ' A personality colours every line the character speaks (an inline {vocal} cue overrides it for its words).'
+              : ' Vocal cues in the script ({braces}) shape delivery; the free voices don’t support a standing personality, so switch to a cloud voice in Settings to set one.'}
           </p>
           {parsed.characters.length === 0 && <p className="muted">Characters appear here as you type.</p>}
           {parsed.characters.map((c) => {
@@ -299,13 +307,15 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
                     </option>
                   ))}
                 </select>
-                <input
-                  className="direction"
-                  value={ov.direction ?? ''}
-                  placeholder="delivery note (e.g. bitter, urgent)"
-                  aria-label={`Delivery note for ${c.name}`}
-                  onChange={(e) => setOverride(key, { direction: e.target.value })}
-                />
+                {personalityWorks && (
+                  <input
+                    className="direction"
+                    value={ov.direction ?? ''}
+                    placeholder="personality (e.g. pompous and clipped; warm, slow, motherly)"
+                    aria-label={`Personality for ${c.name}`}
+                    onChange={(e) => setOverride(key, { direction: e.target.value })}
+                  />
+                )}
               </div>
             )
           })}
