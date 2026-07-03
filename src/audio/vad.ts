@@ -41,6 +41,8 @@ export class MicVAD {
    *  the scene partner's TTS is never recorded. */
   private enabled = false
   private stopped = false
+  private gotFrame = false
+  private resumeWatchdog?: ReturnType<typeof setTimeout>
 
   constructor(private opts: VADOptions) {}
 
@@ -72,7 +74,12 @@ export class MicVAD {
       window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     // Requesting 16 kHz avoids resampling on browsers that honour it.
     this.ctx = new Ctor({ sampleRate: TARGET_RATE })
-    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    if (this.ctx.state === 'suspended') {
+      // Autoplay policies can leave resume() pending indefinitely when the
+      // user-gesture window expired during the (long) model load. Wait briefly,
+      // then continue — the watchdog below retries once audio should be flowing.
+      await Promise.race([this.ctx.resume(), new Promise((r) => setTimeout(r, 1000))])
+    }
 
     this.source = this.ctx.createMediaStreamSource(this.stream)
     // Aim for ~64 ms frames regardless of the ACTUAL sample rate (browsers may
@@ -91,6 +98,7 @@ export class MicVAD {
     const preRollFrames = Math.ceil(((this.opts.preRollMs ?? 300) / 1000) * rate)
 
     this.processor.onaudioprocess = (e) => {
+      this.gotFrame = true
       if (!this.enabled) return // disarmed — ignore partner-TTS bleed entirely
       const input = e.inputBuffer.getChannelData(0)
       const frame = new Float32Array(input) // copy; the buffer is reused
@@ -139,6 +147,14 @@ export class MicVAD {
     this.source.connect(this.processor)
     this.processor.connect(this.sink)
     this.sink.connect(this.ctx.destination)
+
+    // Self-heal: if no audio frames arrive shortly after start (a context left
+    // suspended by autoplay policy), nudge resume() again rather than sitting
+    // silently deaf for the whole first line.
+    this.gotFrame = false
+    this.resumeWatchdog = setTimeout(() => {
+      if (!this.gotFrame && this.ctx && this.ctx.state !== 'closed') void this.ctx.resume()
+    }, 1200)
   }
 
   private endUtterance(minSpeechSec: number, rate: number): void {
@@ -160,6 +176,10 @@ export class MicVAD {
   stop(): void {
     this.stopped = true
     this.enabled = false
+    if (this.resumeWatchdog) {
+      clearTimeout(this.resumeWatchdog)
+      this.resumeWatchdog = undefined
+    }
     if (this.processor) {
       this.processor.onaudioprocess = null
       this.processor.disconnect()

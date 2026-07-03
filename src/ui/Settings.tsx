@@ -281,9 +281,9 @@ export function Settings() {
               onChange={(e) => updateSettings({ projectionCoaching: e.target.checked })}
             />
             <span>
-              <strong>Coach my projection</strong> — the listening meter shows a loudness target and turns green when you
-              project past it, and the summary scores it. Great for building volume; leave off when you need to be quiet
-              (e.g. late at night).
+              <strong>Coach my projection</strong> — the level meter beside your line shows a loudness target and glows
+              when you project past it, and the summary scores it. Great for building volume; leave off when you need to
+              be quiet (e.g. late at night).
             </span>
           </label>
           {settings.projectionCoaching && (

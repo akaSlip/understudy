@@ -154,7 +154,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         settings,
         onUpdate: (s) => {
           setState(s)
-          if (!s.listening) levelStore.set(0) // let the meter settle between lines
+          if (!s.listening) levelStore.reset() // let the meter settle between lines
         },
         onLevel: (l) => levelStore.set(l),
         beatOrder: order,
@@ -415,9 +415,10 @@ function SoundCheckView(props: {
       {phase === 'error' && <div className="banner error">{msg}</div>}
       {phase === 'listening' && (
         <>
-          <p className="sc-prompt">
-            Say a line — any line — and watch the meter move. <MicMeter store={levelStore} />
-          </p>
+          <div className="sc-listen">
+            <LevelMeter store={levelStore} className="sc-meter" />
+            <p className="sc-prompt">Say a line — any line — and watch the meter move.</p>
+          </div>
           {heard.length === 0 ? (
             <p className="muted">Listening…</p>
           ) : (
@@ -687,10 +688,16 @@ function RunningView(props: {
           <>
             <div className="beat-role you">
               YOU — {speaker}
-              {state.listening && (
-                <MicMeter store={levelStore} coaching={settings.projectionCoaching} target={settings.projectionTarget} />
-              )}
+              {state.listening && <span className="listening-tag">🎙 listening</span>}
             </div>
+            {state.listening && (
+              <LevelMeter
+                className="in-card"
+                store={levelStore}
+                coaching={settings.projectionCoaching}
+                target={settings.projectionTarget}
+              />
+            )}
             {direction && <div className="direction-note">{direction}</div>}
             {state.score ? (
               <WordDiff words={state.score.words} revealed={showMine} score={state.score} />
@@ -713,7 +720,7 @@ function RunningView(props: {
               <p className="hint small">The line is shown — read it, or press Next to move on.</p>
             )}
             {settings.projectionCoaching && state.listening && (
-              <p className="hint small">🎙 Projection coaching on — fill the bars past the marker.</p>
+              <p className="hint small">🎙 Projection coaching on — push the level past the marker.</p>
             )}
           </>
         ) : (
@@ -992,23 +999,41 @@ function SummaryView(props: {
  *  pause still reads as "listening"), and swell with your actual voice level.
  *  With projection coaching on, a target marker appears and the bars turn green
  *  once you're projecting past it. */
-/** Tiny external store for the live mic level: updated ~15×/s by the VAD, read
- *  only by the MicMeter via useSyncExternalStore — so the frequent ticks never
- *  re-render the rest of the rehearsal tree. */
+/** Tiny external store for the live mic level (+ a decaying peak hold):
+ *  updated ~15×/s by the VAD, read only by the LevelMeter via
+ *  useSyncExternalStore — so the frequent ticks never re-render the rest of
+ *  the rehearsal tree. */
 interface LevelStore {
   get(): number
+  getPeak(): number
   set(l: number): void
+  reset(): void
   subscribe(fn: () => void): () => void
 }
 function createLevelStore(): LevelStore {
   let level = 0
+  let peak = 0
+  let lastAt = 0
   const listeners = new Set<() => void>()
+  const notify = () => listeners.forEach((fn) => fn())
   return {
     get: () => level,
+    getPeak: () => peak,
     set(l: number) {
-      if (l === level) return
+      const now = Date.now()
+      const prevPeak = peak
+      if (lastAt) peak = Math.max(0, peak - (now - lastAt) * 0.0004) // ~0.4/s decay
+      lastAt = now
+      if (l > peak) peak = l
+      if (l === level && Math.abs(peak - prevPeak) < 0.004) return
       level = l
-      listeners.forEach((fn) => fn())
+      notify()
+    },
+    reset() {
+      level = 0
+      peak = 0
+      lastAt = 0
+      notify()
     },
     subscribe(fn: () => void) {
       listeners.add(fn)
@@ -1017,22 +1042,40 @@ function createLevelStore(): LevelStore {
   }
 }
 
-function MicMeter({ store, coaching, target = 0.5 }: { store: LevelStore; coaching?: boolean; target?: number }) {
+/** Console-style vertical level meter: a green→amber→red column that fills to
+ *  the live level, with a decaying peak-hold line and (when projection
+ *  coaching) a target notch. Deliberately driven ONLY by inline style values —
+ *  no CSS keyframes: `var()` inside @keyframes is snapshotted when an
+ *  animation starts (why the old meter sat dead on the first line). */
+function LevelMeter({
+  store,
+  coaching,
+  target = 0.5,
+  className = '',
+}: {
+  store: LevelStore
+  coaching?: boolean
+  target?: number
+  className?: string
+}) {
   const level = useSyncExternalStore(store.subscribe, store.get)
+  const peak = useSyncExternalStore(store.subscribe, store.getPeak)
   const lvl = Math.max(0, Math.min(1, level))
+  const pk = Math.max(lvl, Math.min(1, peak))
   const over = coaching ? lvl >= target : false
   return (
     <span
-      className={`mic-meter ${coaching ? 'coaching' : ''} ${over ? 'over' : ''}`}
+      className={`level-meter ${coaching ? 'coaching' : ''} ${over ? 'over' : ''} ${className}`}
       role="img"
-      aria-label={coaching ? 'projection meter' : 'listening'}
+      aria-label={coaching ? `projection ${Math.round(lvl * 100)}%` : 'microphone level'}
       title={coaching ? 'projection' : 'listening'}
-      style={{ '--level': String(lvl), '--target': String(target) } as CSSProperties}
+      style={{ '--level': String(lvl), '--peak': String(pk), '--target': String(target) } as CSSProperties}
     >
-      {Array.from({ length: 5 }, (_, i) => (
-        <span key={i} className="mic-bar" />
-      ))}
-      {coaching && <span className="mic-target" aria-hidden />}
+      <span className="lm-scale" aria-hidden />
+      <span className="lm-cover" aria-hidden />
+      <span className="lm-segments" aria-hidden />
+      <span className="lm-peak" aria-hidden />
+      {coaching && <span className="lm-target" aria-hidden />}
     </span>
   )
 }
