@@ -13,6 +13,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 const BUILD_STAMP = new Date().toISOString().slice(0, 16).replace('T', ' ')
 
 export default defineConfig({
+  // Relative base: the built app works from ANY path — a domain root, a
+  // GitHub-Pages subpath (user.github.io/understudy/), or a shared-drive
+  // folder served by a static host. Nothing assumes "/".
+  base: './',
   define: {
     __BUILD_STAMP__: JSON.stringify(BUILD_STAMP),
   },
@@ -32,7 +36,8 @@ export default defineConfig({
         background_color: '#0e0f13',
         display: 'standalone',
         orientation: 'any',
-        start_url: '/',
+        start_url: '.',
+        scope: '.',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
