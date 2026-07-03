@@ -40,6 +40,9 @@
     "uuid": "^11.1.1",
     "onnxruntime-node": "file:./stubs/empty-stub",
     "sharp": "file:./stubs/empty-stub",
-    "@napi-rs/canvas": "file:./stubs/empty-stub"
+    "@napi-rs/canvas": "file:./stubs/empty-stub",
+    "kokoro-js": {
+      "@huggingface/transformers": "^4.2.0"
+    }
   }
 }

@@ -46,7 +46,15 @@ async function load(model: 'tiny' | 'base', forceWasm = false): Promise<void> {
     // "MatMulNBits Missing required scale" session-creation failure on ORT-web
     // WASM (Firefox and any no-WebGPU browser). fp32 is verified to load and
     // run on WASM. WebGPU (Chrome/Edge) also runs fp32 on the GPU.
-    const hasWebGPU = !forceWasm && typeof navigator !== 'undefined' && 'gpu' in navigator
+    // Probe for a REAL adapter, not just the API: navigator.gpu can exist with
+    // no usable adapter, and a failed WebGPU session can poison the ORT
+    // backend registry so the wasm fallback fails too.
+    const hasWebGPU =
+      !forceWasm &&
+      typeof navigator !== 'undefined' &&
+      'gpu' in navigator &&
+      /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+      !!(await (navigator as any).gpu.requestAdapter().catch(() => null))
     const attempts: Array<{ device: string; dtype: string }> = hasWebGPU
       ? [
           { device: 'webgpu', dtype: 'fp32' },

@@ -25,10 +25,20 @@ function getTTS(): Promise<any> {
     ttsPromise = (async () => {
       const mod: any = await import('kokoro-js')
       const KokoroTTS = mod.KokoroTTS
-      const attempts: Array<{ dtype: string; device: string }> = [
-        { dtype: 'fp32', device: 'webgpu' },
-        { dtype: 'q8', device: 'wasm' },
-      ]
+      // Probe for a REAL adapter before attempting WebGPU: navigator.gpu can
+      // exist with no usable adapter (headless, many Linux setups), and a
+      // failed WebGPU session poisons the ORT backend registry so the wasm
+      // fallback then fails too ("no available backend found").
+      const hasWebGPU =
+        typeof navigator !== 'undefined' &&
+        'gpu' in navigator &&
+        !!(await (navigator as any).gpu.requestAdapter().catch(() => null))
+      const attempts: Array<{ dtype: string; device: string }> = hasWebGPU
+        ? [
+            { dtype: 'fp32', device: 'webgpu' },
+            { dtype: 'q8', device: 'wasm' },
+          ]
+        : [{ dtype: 'q8', device: 'wasm' }]
       let lastErr: unknown
       for (const a of attempts) {
         try {
