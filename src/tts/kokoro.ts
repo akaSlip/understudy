@@ -1,11 +1,10 @@
-// Optional free neural voice: Kokoro-82M, running fully in-browser via
-// kokoro-js (WebGPU where available, WASM fallback — important on Linux, where
-// stable-browser WebGPU is spotty). Heavier than Web Speech but noticeably less
-// robotic, offline, and cached per line after first generation.
+// Optional free neural voice: Kokoro-82M, running fully in-browser (WebGPU
+// where available, WASM fallback). Synthesis happens in a Web Worker
+// (kokoro.worker.ts) so the seconds-per-line WASM inference never blocks the
+// UI — generating a play's voices on first run must not freeze button clicks.
+// Cached per line after first generation (see Speaker/audioCache).
 
 import type { TTSVoice } from './webspeech'
-
-const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 
 // Curated subset of Kokoro v1.0 voices with gender hints for casting.
 export const KOKORO_VOICES: (TTSVoice & { gender: 'f' | 'm' })[] = [
@@ -23,69 +22,66 @@ export const KOKORO_VOICES: (TTSVoice & { gender: 'f' | 'm' })[] = [
   { id: 'bm_lewis', label: 'Lewis — male (UK)', gender: 'm' },
 ]
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-let ttsPromise: Promise<any> | null = null
-
-async function getTTS(): Promise<any> {
-  if (!ttsPromise) {
-    ttsPromise = (async () => {
-      const mod: any = await import('kokoro-js')
-      const KokoroTTS = mod.KokoroTTS
-      const attempts: Array<{ dtype: string; device: string }> = [
-        { dtype: 'fp32', device: 'webgpu' },
-        { dtype: 'q8', device: 'wasm' },
-      ]
-      let lastErr: unknown
-      for (const a of attempts) {
-        try {
-          return await KokoroTTS.from_pretrained(MODEL_ID, a)
-        } catch (e) {
-          lastErr = e
-        }
-      }
-      throw lastErr
-    })()
-  }
-  return ttsPromise
+interface WorkerResult {
+  type: 'ready' | 'result' | 'error'
+  id?: number
+  blob?: Blob
+  message?: string
 }
 
-/** Pre-load the model so the first line isn't slow. */
+let worker: Worker | null = null
+let readyPromise: Promise<void> | null = null
+let readyResolve: (() => void) | null = null
+let readyReject: ((e: Error) => void) | null = null
+let reqId = 0
+const pending = new Map<number, { resolve: (b: Blob) => void; reject: (e: Error) => void }>()
+
+function ensureWorker(): Worker {
+  if (!worker) {
+    worker = new Worker(new URL('./kokoro.worker.ts', import.meta.url), { type: 'module' })
+    worker.addEventListener('message', (ev: MessageEvent<WorkerResult>) => {
+      const m = ev.data
+      if (m.type === 'ready') {
+        readyResolve?.()
+      } else if (m.type === 'result' && m.id != null) {
+        pending.get(m.id)?.resolve(m.blob!)
+        pending.delete(m.id)
+      } else if (m.type === 'error') {
+        const err = new Error(m.message ?? 'Voice generation failed')
+        if (m.id != null) {
+          pending.get(m.id)?.reject(err)
+          pending.delete(m.id)
+        } else {
+          readyReject?.(err)
+          readyPromise = null // allow a retry after a failed load
+        }
+      }
+    })
+  }
+  return worker
+}
+
+function ensureReady(): Promise<void> {
+  if (!readyPromise) {
+    readyPromise = new Promise<void>((resolve, reject) => {
+      readyResolve = resolve
+      readyReject = reject
+      ensureWorker().postMessage({ type: 'load' })
+    })
+  }
+  return readyPromise
+}
+
+/** Pre-load the model (in the worker) so the first line isn't slow. */
 export async function warmupKokoro(): Promise<void> {
-  await getTTS()
+  await ensureReady()
 }
 
 export async function generateKokoro(text: string, voiceId = 'af_heart'): Promise<Blob> {
-  const tts = await getTTS()
-  const audio: any = await tts.generate(text, { voice: voiceId })
-  if (typeof audio.toBlob === 'function') return audio.toBlob()
-  return floatToWavBlob(audio.audio as Float32Array, audio.sampling_rate as number)
-}
-
-/** Minimal 16-bit PCM WAV encoder for the case where RawAudio.toBlob is absent. */
-function floatToWavBlob(samples: Float32Array, sampleRate: number): Blob {
-  const buffer = new ArrayBuffer(44 + samples.length * 2)
-  const view = new DataView(buffer)
-  const writeString = (off: number, s: string) => {
-    for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i))
-  }
-  writeString(0, 'RIFF')
-  view.setUint32(4, 36 + samples.length * 2, true)
-  writeString(8, 'WAVE')
-  writeString(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  writeString(36, 'data')
-  view.setUint32(40, samples.length * 2, true)
-  let off = 44
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]))
-    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true)
-    off += 2
-  }
-  return new Blob([buffer], { type: 'audio/wav' })
+  await ensureReady()
+  const id = ++reqId
+  return new Promise<Blob>((resolve, reject) => {
+    pending.set(id, { resolve, reject })
+    ensureWorker().postMessage({ type: 'generate', id, text, voice: voiceId })
+  })
 }

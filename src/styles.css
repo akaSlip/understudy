@@ -1234,3 +1234,20 @@ legend {
   justify-content: flex-end;
   gap: 0.75rem;
 }
+
+/* "Preparing voice…" chip on a partner line whose audio is still generating. */
+.prep-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.6rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.prep-voice .spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}

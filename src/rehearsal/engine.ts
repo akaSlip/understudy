@@ -35,6 +35,9 @@ export interface RehearsalState {
   totalBeats: number
   beat?: Beat
   isMyLine: boolean
+  /** During a partner line: true once audio is actually playing (false while
+   *  the voice is still being generated — first run of a play). */
+  partnerSpeaking: boolean
   /** Accumulated recognizer transcript for the current line. */
   transcript: string
   score?: LineScore
@@ -103,6 +106,7 @@ export class RehearsalEngine {
   private score: LineScore | undefined
   private revealed = false
   private speakingCharId: string | undefined
+  private partnerSpeaking = false
   private attempts: LineAttempt[] = []
   private error: string | undefined
   /** True while `error` describes a TTS failure (vs a recognizer one) — lets a
@@ -308,6 +312,7 @@ export class RehearsalEngine {
     this.score = undefined
     this.revealed = false
     this.speakingCharId = undefined
+    this.partnerSpeaking = false
     if (pos >= this.order.length) {
       this.pos = this.order.length
       this.finish()
@@ -385,8 +390,12 @@ export class RehearsalEngine {
    *  transition. */
   private async performLine(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
     const isAbort = (e: unknown) => (e as { name?: string })?.name === 'AbortError'
+    const onStart = () => {
+      this.partnerSpeaking = true // audio is actually playing now
+      this.emit()
+    }
     try {
-      await this.deps.speaker.speakSegments(segments, voice, () => this.emit())
+      await this.deps.speaker.speakSegments(segments, voice, onStart)
       // The primary voice works (again) — retire any stale fallback notice
       // (but never a recognizer error, which this says nothing about).
       if (this.ttsError) {
@@ -400,7 +409,7 @@ export class RehearsalEngine {
       this.emit()
       if (voice.engine === 'webspeech') return // no different voice to fall back to
       try {
-        await this.deps.speaker.speakSegments(segments, { engine: 'webspeech', rate: voice.rate }, () => this.emit())
+        await this.deps.speaker.speakSegments(segments, { engine: 'webspeech', rate: voice.rate }, onStart)
       } catch (e2) {
         if (isAbort(e2)) throw e2
         // Even the fallback failed (no speech synthesis at all) — keep the flow.
@@ -573,6 +582,7 @@ export class RehearsalEngine {
       totalBeats: total,
       beat,
       isMyLine,
+      partnerSpeaking: this.partnerSpeaking,
       transcript: this.transcript,
       score: this.score,
       revealed: this.revealed,

@@ -720,7 +720,14 @@ function RunningView(props: {
           <>
             <div className="beat-role partner">
               {speaker}
-              {state.phase === 'partner' && <span className="speaking-dot" title="speaking" />}
+              {state.phase === 'partner' &&
+                (state.partnerSpeaking ? (
+                  <span className="speaking-dot" title="speaking" />
+                ) : (
+                  <span className="prep-voice" role="status">
+                    <span className="spinner" aria-hidden="true" /> preparing voice…
+                  </span>
+                ))}
             </div>
             {direction && <div className="direction-note">{direction}</div>}
             <LineText beat={beat} showDirections={settings.showDirections} />
