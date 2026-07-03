@@ -1,5 +1,7 @@
 :root {
   /* Dark theme (default) */
+  --font-display: 'Fraunces Variable', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+  --font-body: 'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --bg: #0e0f13;
   --bg-2: #16171f;
   --surface: #1b1d27;
@@ -15,7 +17,7 @@
   --sub: #e57373;
   --missing: #7d818f;
   --danger: #e06a6a;
-  --stage-accent: #a9adf0;
+  --stage-accent: #9fa3dc;
   --bg-glow: #191b24;
   --topbar-bg: rgba(14, 15, 19, 0.85);
   --mine-grad: #1e1c18;
@@ -29,7 +31,7 @@
   --err-border: #4a2b2b;
   --err-text: #ffd7d7;
   --radius: 14px;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow: 0 10px 30px rgba(8, 10, 18, 0.5); /* tinted to the charcoal-blue base, not pure black */
   font-synthesis: none;
 }
 
@@ -79,10 +81,23 @@ body,
 body {
   background: radial-gradient(1200px 700px at 50% -10%, var(--bg-glow) 0%, var(--bg) 55%);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums; /* scores, counters and timers align */
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+
+/* A whisper of grain so large surfaces don't read as sterile flat colour. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 90; /* a film over everything — 4% noise, never blocks input */
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
 
 button {
   font: inherit;
@@ -114,6 +129,8 @@ button.primary {
 button.primary:hover:not(:disabled) {
   filter: brightness(1.06);
   background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 button.danger {
   color: var(--err-text);
@@ -149,12 +166,22 @@ textarea:focus {
   outline-offset: 0;
 }
 
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 580;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
 h1 {
-  font-size: 1.5rem;
+  font-size: 1.85rem;
+  line-height: 1.15;
   margin: 0;
 }
 h3 {
   margin: 0 0 0.3rem;
+  font-size: 1.15rem;
 }
 code {
   background: var(--bg-2);
@@ -194,9 +221,10 @@ code {
 .brand {
   background: none;
   border: none;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.2px;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 620;
+  letter-spacing: -0.01em;
   padding: 0.2rem 0.3rem;
 }
 .logo-mark {
@@ -615,6 +643,7 @@ code {
 
 .beat-card {
   position: relative; /* anchors the in-card level meter */
+  overflow: hidden;
   min-height: 46vh;
   display: flex;
   flex-direction: column;
@@ -656,10 +685,16 @@ button:focus-visible,
 .beat-role.stage-dir {
   color: var(--stage-accent);
 }
+/* The spoken lines read in the display serif — scripts are set in serif, and
+ *  Fraunces stays highly legible at teleprompter sizes. */
 .beat-text {
-  font-size: clamp(1.4rem, 3.2vw, 2.1rem);
-  font-weight: 500;
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 3.2vw, 2.15rem);
+  font-weight: 480;
+  letter-spacing: -0.008em;
+  line-height: 1.45;
   margin: 0;
+  text-wrap: pretty;
 }
 .beat-text.stage-text {
   font-size: 1.15rem;
@@ -797,11 +832,23 @@ button:focus-visible,
 }
 
 
+/* A soft spotlight falling from above — the beat card is the stage. */
+.beat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(60% 55% at 50% -8%, color-mix(in srgb, var(--accent) 9%, transparent) 0%, transparent 70%);
+}
+
 /* Word-level diff */
 .worddiff {
-  font-size: clamp(1.4rem, 3.2vw, 2.1rem);
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 3.2vw, 2.15rem);
+  font-weight: 480;
+  letter-spacing: -0.008em;
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 .word {
   transition: color 0.15s;
