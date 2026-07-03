@@ -35,16 +35,21 @@ export function needsExtraction(file: File): boolean {
 
 /** Extract script text from any supported file. Edition-apparatus cleanup runs
  *  here, on the shared exit, so PDFs, photographed pages AND pasted text files
- *  from the same source all get the same treatment. */
+ *  from the same source all get the same treatment; OCR output additionally
+ *  gets script-shaping (speaker cues onto their own lines, hyphen repair …). */
 export async function extractText(file: File, onProgress?: ProgressFn): Promise<string> {
-  if (isPdf(file)) return cleanEditionArtifacts(await extractPdf(file, onProgress))
-  if (isImage(file)) return cleanEditionArtifacts(await extractImage(file, onProgress))
+  if (isPdf(file)) {
+    const { text, ocred } = await extractPdfRaw(file, onProgress)
+    const cleaned = cleanEditionArtifacts(text)
+    return ocred ? shapeOcrScript(cleaned) : cleaned
+  }
+  if (isImage(file)) return shapeOcrScript(cleanEditionArtifacts(await extractImage(file, onProgress)))
   return cleanEditionArtifacts(await file.text())
 }
 
 // --- PDF -------------------------------------------------------------------
 
-async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> {
+async function extractPdfRaw(file: File, onProgress?: ProgressFn): Promise<{ text: string; ocred: boolean }> {
   const pdfjs = await import('pdfjs-dist')
   // Vite resolves this to a hashed worker asset at build time.
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -56,6 +61,7 @@ async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> 
   const doc = await pdfjs.getDocument({ data }).promise
   const pages: string[] = []
   let ocrError: unknown = null
+  let ocred = false
   try {
     for (let n = 1; n <= doc.numPages; n++) {
       onProgress?.({ stage: 'reading', page: n, pages: doc.numPages, message: `Reading page ${n} of ${doc.numPages}…` })
@@ -69,6 +75,7 @@ async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> 
         onProgress?.({ stage: 'ocr', page: n, pages: doc.numPages, message: `Page ${n} looks scanned — running OCR…` })
         try {
           text = await ocrPdfPage(page, onProgress, n, doc.numPages)
+          ocred = true
         } catch (e) {
           ocrError = e
           text = ''
@@ -83,7 +90,7 @@ async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> 
   // Only fail the import when OCR was the ONLY possible source of text.
   if (ocrError && !combined.trim()) throw ocrError instanceof Error ? ocrError : new Error(String(ocrError))
   onProgress?.({ stage: 'done', message: 'Finished reading.' })
-  return combined
+  return { text: combined, ocred }
 }
 
 /** Strip scholarly-edition apparatus that would pollute line scoring. Folger
@@ -92,7 +99,8 @@ async function extractPdf(file: File, onProgress?: ProgressFn): Promise<string> 
  *  marked wrong for not saying them. EVERY rule is gated on the document
  *  carrying the FTLN signature, so ordinary scripts pass through untouched. */
 export function cleanEditionArtifacts(text: string): string {
-  const ftln = /^\s*F[TI1l]LN\s*\d+\s*/ // OCR often misreads FTLN as FILN/F1LN
+  // OCR misreads FTLN many ways: FILN, F1LN, FTN, FLN …
+  const ftln = /^\s*F[TIL1l]{0,3}N\s*\d+\s*/
   const lines = text.split('\n')
   const isFolger = lines.filter((l) => ftln.test(l)).length >= 3
   if (!isFolger) return text
@@ -100,9 +108,82 @@ export function cleanEditionArtifacts(text: string): string {
     .map((raw) => {
       const l = raw.replace(ftln, '').replace(/\s+\d{1,4}$/, '') // prefix + margin number
       // A line that is only a number (page number) says nothing worth keeping.
-      return /^\s*\d{1,4}\s*$/.test(l) ? '' : l
+      if (/^\s*\d{1,4}\s*$/.test(l)) return ''
+      // Running page headers: "101 Macbeth ACT 3. SC. 4" (often OCR-mangled).
+      if (/^\s*\d{1,4}\s+\p{Lu}\p{Ll}+/u.test(l)) return ''
+      return l
     })
     .join('\n')
+}
+
+/** Shape raw OCR text into parseable script layout. OCR flattens the visual
+ *  structure a parser needs: speaker names end up INLINE with their first line
+ *  ("| MACBETH Thanks for that." — the "|" is Folger's shared-verse indent),
+ *  hyphenated line breaks split words, and stage directions glue onto speech.
+ *  Applied ONLY to OCR output — typed text is never reshaped. */
+export function shapeOcrScript(text: string): string {
+  let t = text.replace(/\r/g, '')
+  // Rejoin words hyphenated across a line break ("con-\ntinued").
+  t = t.replace(/(\p{Ll})-\n(\p{Ll})/gu, '$1$2')
+  // OCR quote/apostrophe repairs: curly quotes, ° and * misread for apostrophes.
+  t = t.replace(/(\p{L})”(?=\s|$)/gu, "$1'") // th” present → th' present (before quote mapping)
+  t = t.replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/°/g, "'")
+  t = t.replace(/(^|\s)\*(?=\p{L})/gu, "$1'")
+
+  // A speaker cue: 1–4 ALL-CAPS words (first ≥2 letters), optional comma, an
+  // optional (performance cue), then optionally the first words of the speech.
+  const CUE = /^((?:\p{Lu}[\p{Lu}'’-]+)(?:\s+(?:\p{Lu}[\p{Lu}'’-]+|OF|THE|AND)){0,3}),?\s*(\([^)]*\))?\s*(.*)$/u
+  const HEADING = /^(ACT|SCENE|PROLOGUE|EPILOGUE)\b/
+  const STAGE = /^(Enter|Exit|Exeunt|Re-enter|Alarum|Flourish|Thunder)\b/
+  // Caps words that start sentences far more often than they name a speaker.
+  const OCR_STOPWORDS = new Set([
+    'A', 'AN', 'AND', 'AY', 'BE', 'BUT', 'DO', 'FOR', 'GO', 'HE', 'HOW', 'IF', 'IN', 'IS', 'IT', 'LET', 'MY',
+    'NO', 'NOT', 'NOW', 'OF', 'ON', 'OR', 'OUR', 'SHE', 'SO', 'THAT', 'THE', 'THEN', 'THERE', 'THEY', 'THIS',
+    'TO', 'US', 'WE', 'WHAT', 'WHERE', 'WHO', 'WHY', 'YE', 'YES', 'YOU',
+  ])
+
+  const out: string[] = []
+  for (const raw of t.split('\n')) {
+    // Folger's shared-verse marker: "| MACBETH Thanks for that."
+    const line = raw.replace(/^\s*\|\s*/, '').trimEnd()
+    if (!line.trim()) {
+      out.push('')
+      continue
+    }
+    // Stage directions get their own paragraph so they parse as action beats.
+    if (STAGE.test(line.trim())) {
+      out.push('', line.trim(), '')
+      continue
+    }
+    // Trailing inline exit glued to a speech: "…again. Murderer exits."
+    const exit = line.match(/^(.*[.!?])\s+((?:They|[A-Z]\w+(?:\s+\w+){0,3})\s+exi(?:t|ts)\.)$/)
+    if (exit) {
+      out.push(exit[1], '', exit[2], '')
+      continue
+    }
+    const m = line.match(CUE)
+    if (m && !HEADING.test(m[1])) {
+      const name = m[1].replace(/,+$/, '')
+      const cue = m[2]
+      const rest = m[3]?.trim()
+      const words = name.split(/\s+/)
+      // Guards against false positives:
+      // - speech text after the name must start like a sentence (capital/quote);
+      // - a lone caps stop-word starting a sentence ("TO saucy doubts…") is text;
+      // - a fully-shouted line ("STOP THAT NOW.") is text, not name + speech.
+      const restOk = !rest || /^[\p{Lu}"'‘’]/u.test(rest)
+      const stopWord = words.length === 1 && !cue && !!rest && OCR_STOPWORDS.has(words[0])
+      const shouted = !!rest && rest.length > 3 && !/\p{Ll}/u.test(rest)
+      if (restOk && !stopWord && !shouted) {
+        out.push('', name)
+        if (cue) out.push(cue)
+        if (rest) out.push(rest)
+        continue
+      }
+    }
+    out.push(line)
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n'
 }
 
 export interface TextItem {

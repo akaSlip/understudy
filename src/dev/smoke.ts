@@ -6,7 +6,7 @@
 import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
 import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
-import { cleanEditionArtifacts, isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
+import { cleanEditionArtifacts, isImage, isPdf, needsExtraction, reconstructLines, shapeOcrScript } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
 import { azureStyle, buildAzureSSML, directionsInstruction, elevenLabsText, fetchElevenVoices, geminiPrompt, isPremiumEngine, mapElevenVoice, pcmToWav } from '../tts/premium'
 import { PREMIUM_VOICES } from '../tts/premiumVoices'
@@ -148,31 +148,84 @@ check('the spoken words survive', /cabined, cribbed, confined/.test(cleanedF))
 const normalScript = 'JACK: I have 25 pounds.\n\n42\n\nALGERNON: Lend me 5.'
 check('non-Folger text untouched (incl. standalone-number lines)', cleanEditionArtifacts(normalScript) === normalScript)
 
-console.log('\n— inline delivery directions —')
-const shift = parseScript('LEAR: (bewildered) Who is it can tell me who I am? (angrily) Does any here know me? (defeated) I should be false persuaded I had daughters.')
+console.log('\n— OCR script shaping (real Folger OCR output) —')
+// Verbatim problems from the user's scene34.pdf OCR: "|" shared-verse markers,
+// speaker names INLINE with their first words (no colon), page headers, the
+// "FTN" misread of FTLN, ° for apostrophes, and stage exits glued to speech.
+const ocrFixture = [
+  'MURDERER',
+  'Ay, my good lord. Safe in a ditch he bides,',
+  'The least a death to nature.',
+  '| MACBETH Thanks for that.',
+  'There the grown serpent lies. Get thee gone. Tomorrow',
+  "We'll hear ourselves again. Murderer exits.",
+  '| LADY MACBETH My royal lord,',
+  'You do not give the cheer.',
+  '',
+  "Enter the Ghost of Banquo, and sits in Macbeth's place.",
+  '',
+  '| MACBETH, (to Lady Macbeth) Sweet remembrancer!—',
+  'Now, good digestion wait on appetite',
+  '| LENNOX May °t please your Highness sit.',
+].join('\n')
+const shaped = shapeOcrScript(ocrFixture)
+check('shared-verse "|" markers removed', !shaped.includes('|'), shaped.slice(0, 80))
+check('inline speaker split onto its own line', /\n\nMACBETH\nThanks for that\./.test(shaped), shaped)
+check('speaker with performance cue split out', /\n\nMACBETH\n\(to Lady Macbeth\)\nSweet remembrancer!—/.test(shaped), shaped)
+check('glued stage exit separated', /\n\nMurderer exits\.\n/.test(shaped), shaped)
+check('° repaired to apostrophe', shaped.includes("May 't please"), shaped)
+const shapedPlay = parseScript(shaped)
+const shapedNames = shapedPlay.characters.map((c) => c.name)
+check('shaped OCR parses to the real cast', ['Murderer', 'Macbeth', 'Lady Macbeth', 'Lennox'].every((n) => shapedNames.includes(n)), shapedNames)
+check('Macbeth speaks his OWN line (not glued to the Murderer)', shapedPlay.beats.some((b) => b.kind === 'dialogue' && /Thanks for that/.test(b.text) && shapedPlay.characters.find((c) => c.id === b.characterId)?.name === 'Macbeth'))
+check('(to Lady Macbeth) preserved as a performance cue', shapedPlay.beats.some((b) => b.parenthetical === 'to Lady Macbeth' || b.segments?.some((s) => s.cue === 'to Lady Macbeth')))
+check('stage exit becomes an action beat', shapedPlay.beats.some((b) => b.kind === 'action' && /Murderer exits/.test(b.text)))
+check('shaping never invents caps from dialogue', !shapedNames.some((n) => /^(To|The|We|Ay)$/i.test(n)), shapedNames)
+
+// The FTN misread of FTLN is now stripped by the Folger cleaner.
+const ftnDoc = ['FTLN 1230 Whole as the marble,', 'FTN 1265 Here is a place reserved, sir.', 'FILN 1236 But now I am cabined,', '101 Macbeth ACT 3. SC. 4'].join('\n')
+const ftnClean = cleanEditionArtifacts(ftnDoc)
+check('FTN/FILN variants stripped', !/F[TIL]+N/.test(ftnClean), ftnClean)
+check('running page header dropped', !/101 Macbeth/.test(ftnClean), ftnClean)
+
+console.log('\n— inline cues: {vocal} and (performance) —')
+const shift = parseScript('LEAR: {bewildered} Who is it can tell me who I am? {angrily} Does any here know me? {defeated} I should be false persuaded I had daughters.')
 const lear = shift.beats.find((b) => b.kind === 'dialogue')
-check('inline directions split into segments', lear?.segments?.length === 3, lear?.segments?.map((s) => s.direction))
-check('segment directions captured in order', JSON.stringify(lear?.segments?.map((s) => s.direction)) === JSON.stringify(['bewildered', 'angrily', 'defeated']), lear?.segments?.map((s) => s.direction))
-check('plain text drops the direction tags', !/[()]/.test(lear?.text ?? '(') && /Who is it/.test(lear?.text ?? ''), lear?.text)
+check('inline vocal cues split into segments', lear?.segments?.length === 3, lear?.segments?.map((s) => s.direction))
+check('vocal cues captured in order', JSON.stringify(lear?.segments?.map((s) => s.direction)) === JSON.stringify(['bewildered', 'angrily', 'defeated']), lear?.segments?.map((s) => s.direction))
+check('plain text drops the cue tags', !/[{}()]/.test(lear?.text ?? '{') && /Who is it/.test(lear?.text ?? ''), lear?.text)
 check('segment text concatenates back to the line', lear?.segments?.map((s) => s.text).join(' ') === lear?.text, lear?.text)
 
 // A single-tone line gets no segments (falls back to whole-line delivery).
 const plainLine = parseScript('JACK: I believe it is customary to take some refreshment.')
 check('single-tone line has no segments', !plainLine.beats.find((b) => b.kind === 'dialogue')?.segments)
 
-// A parenthetical aside that is NOT a direction stays in the spoken text.
-const aside = parseScript('BEN: I saw him (the tall one, from before) yesterday morning.')
-const benBeat = aside.beats.find((b) => b.kind === 'dialogue')
-check('non-direction parenthetical kept as spoken text', /the tall one/.test(benBeat?.text ?? '') && !benBeat?.segments, benBeat?.text)
+// Inline (parentheses) are PERFORMANCE cues: preserved on the segment, removed
+// from the scoreable/spoken words.
+const perf = parseScript('BEN: I saw him (points to the door) yesterday morning.')
+const benBeat = perf.beats.find((b) => b.kind === 'dialogue')
+check('performance cue removed from scoreable text', benBeat?.text === 'I saw him yesterday morning.', benBeat?.text)
+check('performance cue preserved on the segment', benBeat?.segments?.some((s) => s.cue === 'points to the door') === true, benBeat?.segments)
 
-// Round-trip through Fountain preserves the inline directions.
-const rt = parseScript(toFountain({ characters: shift.characters, beats: shift.beats }))
-check('round-trip keeps 3 segments', rt.beats.find((b) => b.kind === 'dialogue')?.segments?.length === 3, rt.beats.find((b) => b.kind === 'dialogue')?.segments?.map((s) => s.direction))
+// A line can mix both kinds: (business) then {voice}.
+const both = parseScript('LEAR: (rises) {angrily} Does any here know me?')
+const bothBeat = both.beats.find((b) => b.kind === 'dialogue')!
+check('mixed cues land on the same segment', bothBeat.segments?.[0]?.cue === 'rises' && bothBeat.segments?.[0]?.direction === 'angrily', bothBeat.segments)
 
-// Premium tagging + prosody mapping.
+// Round-trip through Fountain preserves both cue kinds.
+const rt = parseScript(toFountain({ characters: both.characters, beats: [...shift.beats, ...both.beats] }))
+const rtLear = rt.beats.find((b) => b.kind === 'dialogue' && /persuaded/.test(b.text))
+const rtBoth = rt.beats.find((b) => b.kind === 'dialogue' && /know me/.test(b.text) && b.segments?.[0]?.cue)
+check('round-trip keeps 3 vocal segments', rtLear?.segments?.length === 3, rtLear?.segments?.map((s) => s.direction))
+check('round-trip keeps performance + vocal on one segment', rtBoth?.segments?.[0]?.cue === 'rises' && rtBoth?.segments?.[0]?.direction === 'angrily', rtBoth?.segments)
+
+// Premium tagging + prosody mapping (vocal cues only — performance cues never
+// reach the voice).
 check('premium tagged text uses [tags]', segmentsToTaggedText(lear!.segments!) === '[bewildered] Who is it can tell me who I am? [angrily] Does any here know me? [defeated] I should be false persuaded I had daughters.', segmentsToTaggedText(lear!.segments!))
+check('performance cues are NOT in the tagged text', !segmentsToTaggedText(bothBeat.segments!).includes('rises'), segmentsToTaggedText(bothBeat.segments!))
 check('angry ≠ neutral prosody', directionToProsody('angrily').pitch !== 1 && directionToProsody('angrily').rate > 1)
 check('sad direction slows + lowers', directionToProsody('defeated').rate < 1 && directionToProsody('defeated').pitch < 1)
+check('palette samples all map to prosody', ['whispering', 'shouting', 'urgent', 'slowly'].every((c) => directionToProsody(c).rate !== 1 || directionToProsody(c).pitch !== 1))
 check('unknown direction is neutral', directionToProsody('quizzically-ish-xyz').rate === 1 && directionToProsody('quizzically-ish-xyz').pitch === 1)
 
 console.log('\n— audit regressions —')
@@ -181,24 +234,25 @@ const homoshort = scoreLine('There!', 'their')
 check('one-word homophone line passes (near = full pass credit)', homoshort.passed === true, homoshort.accuracy)
 check('…but displayed accuracy still shows the difference', homoshort.accuracy < 1, homoshort.accuracy)
 
-// M4: a trailing "(sadly)" colours the previous segment instead of being scoreable text.
-const trailing = parseScript('A: Goodbye then. (sadly)')
+// M4: a trailing "{sadly}" colours the previous segment instead of being scoreable text.
+const trailing = parseScript('A: Goodbye then. {sadly}')
 const tBeat = trailing.beats.find((b) => b.kind === 'dialogue')!
-check('trailing direction removed from scoreable text', !tBeat.text.includes('('), tBeat.text)
-check('trailing direction attached to the segment', tBeat.segments?.some((s) => s.direction === 'sadly') === true, tBeat.segments)
+check('trailing vocal cue removed from scoreable text', !tBeat.text.includes('{'), tBeat.text)
+check('trailing vocal cue attached to the segment', tBeat.segments?.some((s) => s.direction === 'sadly') === true, tBeat.segments)
 
-// M4b: a direction-only line becomes a parenthetical, not spoken/scored words.
-const only = parseScript('A: (bewildered)\n\nB: hello')
+// M4b: a cue-only line becomes a parenthetical, not spoken/scored words.
+const only = parseScript('A: {bewildered}\n\nB: hello')
 const oBeat = only.beats.find((b) => b.kind === 'dialogue' && b.characterId === only.characters[0].id)!
-check('direction-only line is not scoreable text', oBeat.text === '' && oBeat.parenthetical === 'bewildered', oBeat)
+check('cue-only line is not scoreable text', oBeat.text === '' && oBeat.parenthetical === 'bewildered', oBeat)
 
-// M5: tidy-merge folds the parenthetical into segments WITHOUT leaving a duplicate.
-const dbl2 = parseScript('A\n(coldly)\nFirst part.\n\nA\n(warmly) Second part.')
+// Tidy-merge preserves BOTH the whole-line parenthetical and inline cues —
+// "Tidy speeches removed bracketed parts" was a reported defect.
+const dbl2 = parseScript('A\n(coldly)\nFirst part.\n\nA\n(waves) {warmly} Second part.')
 const merged2 = mergeConsecutiveDialogue(dbl2.beats).find((b) => b.kind === 'dialogue')!
-check('merge clears the stale parenthetical (no double display)', merged2.parenthetical === undefined && merged2.segments?.[0]?.direction === 'coldly', {
-  parenthetical: merged2.parenthetical,
-  seg0: merged2.segments?.[0]?.direction,
-})
+check('tidy keeps the whole-line parenthetical', merged2.parenthetical === 'coldly', merged2.parenthetical)
+check('tidy keeps inline performance + vocal cues', merged2.segments?.some((s) => s.cue === 'waves') === true && merged2.segments?.some((s) => s.direction === 'warmly') === true, merged2.segments)
+const tidiedText = toFountain({ characters: dbl2.characters, beats: mergeConsecutiveDialogue(dbl2.beats) })
+check('tidied script still contains all brackets', tidiedText.includes('(coldly)') && tidiedText.includes('(waves)') && tidiedText.includes('{warmly}'), tidiedText)
 
 // H3: re-parsing a play re-adopts existing character/beat ids where unchanged.
 const orig = parseScript('Title: T\n\nHAMLET: To be or not to be.\n\nOPHELIA: Good my lord.')

@@ -241,7 +241,7 @@ function looksLikeTitlePage(lines: string[]): boolean {
 }
 
 function cleanName(name: string): string {
-  const base = name.replace(/\(.*?\)/g, '').replace(/[:.^]+$/g, '').trim()
+  const base = name.replace(/\(.*?\)/g, '').replace(/[:.,^]+$/g, '').trim()
   if (!/\p{Ll}/u.test(base) && /\p{Lu}/u.test(base)) {
     return base.toLowerCase().replace(/\b\p{L}/gu, (m) => m.toUpperCase())
   }
@@ -268,14 +268,13 @@ export function mergeConsecutiveDialogue(beats: Beat[]): Beat[] {
       last.characterId === b.characterId &&
       !b.parenthetical
     ) {
-      // Merge the spoken text, and the delivery segments alongside it so inline
-      // directions survive a tidy of a double-spaced import.
+      // Merge the spoken text, and the segments alongside it so inline vocal
+      // and performance cues survive a tidy of a double-spaced import. The
+      // beat's own parenthetical is untouched — cues are performance notes the
+      // actor asked us never to discard.
       last.text = `${last.text} ${b.text}`.replace(/\s+/g, ' ').trim()
       if (last.segments || b.segments) {
         last.segments = [...beatSegments(last), ...beatSegments(b)]
-        // beatSegments folded any whole-line parenthetical into the first
-        // segment's direction — drop the original so it isn't shown twice.
-        last.parenthetical = undefined
       }
     } else {
       out.push({ ...b })
@@ -352,11 +351,17 @@ export function toFountain(opts: {
     } else {
       const name = (nameById.get(b.characterId!) ?? 'UNKNOWN').toUpperCase()
       out.push('', name)
+      // The whole-line parenthetical is ALWAYS re-emitted (performance cues
+      // must survive every round-trip), independent of inline segments.
+      if (b.parenthetical) out.push(`(${b.parenthetical})`)
       if (b.segments && b.segments.length) {
-        // Re-emit inline directions so a round-trip preserves the emotion shifts.
-        out.push(b.segments.map((s) => (s.direction ? `(${s.direction}) ${s.text}` : s.text)).join(' '))
-      } else {
-        if (b.parenthetical) out.push(`(${b.parenthetical})`)
+        // Re-emit inline cues: (performance) and {vocal}, in segment order.
+        out.push(
+          b.segments
+            .map((s) => `${s.cue ? `(${s.cue}) ` : ''}${s.direction ? `{${s.direction}} ` : ''}${s.text}`)
+            .join(' '),
+        )
+      } else if (b.text) {
         out.push(b.text)
       }
     }

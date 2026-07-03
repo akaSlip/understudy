@@ -390,6 +390,11 @@ export class RehearsalEngine {
    *  transition. */
   private async performLine(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
     const isAbort = (e: unknown) => (e as { name?: string })?.name === 'AbortError'
+    // A character-level delivery note (cast panel) colours the whole line when
+    // the line itself carries no inline {vocal} cues.
+    if (voice.direction && !segments.some((s) => s.direction)) {
+      segments = segments.map((s, i) => (i === 0 ? { ...s, direction: voice.direction } : s))
+    }
     const onStart = () => {
       this.partnerSpeaking = true // audio is actually playing now
       this.emit()

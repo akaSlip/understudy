@@ -1,108 +1,93 @@
 // ---------------------------------------------------------------------------
-// Inline delivery directions
+// Inline cues
 // ---------------------------------------------------------------------------
-// A single spoken line can shift emotion partway through, e.g.
-//   "(bewildered) What is this? (angrily) How dare you! (defeated) …I give up."
-// We split such a line into LineSegments, each with its own delivery note. The
-// premium engines (ElevenLabs v3) take the note as an inline acting tag for
-// genuine emotion; the free on-device voices approximate it with pitch / rate /
-// pause shifts. The plain concatenated words are what we score against.
+// Two kinds of inline cue can appear in a dialogue line:
+//   {braces}       VOCAL cues — "{angrily}" — steer the voice: premium engines
+//                  (ElevenLabs v3) get them as inline acting tags; the free
+//                  voices approximate them with pitch / rate / pause shifts.
+//   (parentheses)  PERFORMANCE cues — "(draws his sword)", "(to the Ghost)" —
+//                  shown to the actor, never spoken, scored, or fed to a voice.
+// A line splits into LineSegments at each cue; the plain concatenated words are
+// what the actor is scored against and what the voices actually speak.
 
 import type { Beat, LineSegment } from '../types'
 
-/** A parenthetical is treated as a *delivery direction* (rather than literal
- *  spoken text) only when it's short and note-like — no sentence punctuation and
- *  a handful of words at most. This keeps genuine parenthetical asides in a line
- *  from being swallowed. */
-function looksLikeDirection(s: string): boolean {
-  const t = s.trim()
-  if (!t || t.length > 40) return false
-  // Sentence punctuation or a comma signals a spoken aside, not a delivery note.
-  if (/[.?!;:,]/.test(t)) return false
-  return t.split(/\s+/).length <= 5
-}
-
-/** Break a line on its inline direction parentheticals. Returns the plain words
- *  (for scoring/display fallback) and the ordered segments. */
+/** Break a line on its inline cues. Returns the plain words (for scoring /
+ *  speaking) and the ordered segments carrying vocal + performance cues. */
 export function splitDirections(text: string): { plain: string; segments: LineSegment[] } {
-  const re = /\(([^)]+)\)/g
+  const re = /\(([^)]*)\)|\{([^}]*)\}/g
   const segments: LineSegment[] = []
   let cursor = 0
   let curText = ''
   let curDir: string | undefined
+  let curCue: string | undefined
   const flush = () => {
     const clean = curText.replace(/\s+/g, ' ').trim()
     if (clean) {
-      segments.push(curDir ? { text: clean, direction: curDir } : { text: clean })
-      curDir = undefined // consumed — only a direction with NO text stays pending
+      const seg: LineSegment = { text: clean }
+      if (curDir) seg.direction = curDir
+      if (curCue) seg.cue = curCue
+      segments.push(seg)
+      curDir = curCue = undefined // consumed; empty flushes keep them pending
     }
     curText = ''
   }
   let m: RegExpExecArray | null
   while ((m = re.exec(text))) {
-    const content = m[1].trim()
-    if (looksLikeDirection(content)) {
-      curText += text.slice(cursor, m.index)
-      flush()
-      curDir = content
-    } else {
-      // Not a direction — keep the literal parenthesis as spoken text.
-      curText += text.slice(cursor, re.lastIndex)
-    }
+    const cue = m[1] !== undefined ? m[1].trim() : undefined // (…)
+    const dir = m[2] !== undefined ? m[2].trim() : undefined // {…}
+    curText += text.slice(cursor, m.index)
+    flush()
+    if (dir) curDir = curDir ? `${curDir}, ${dir}` : dir
+    if (cue) curCue = curCue ? `${curCue}; ${cue}` : cue
     cursor = re.lastIndex
   }
   curText += text.slice(cursor)
   flush()
-  // A trailing direction with no words after it — "Goodbye. (sadly)" — would
-  // otherwise be dropped AND left in the spoken text. Attach it to the last
-  // segment instead so it still colours the delivery.
-  if (curDir && segments.length) {
+  // Trailing cues with no words after them — "Goodbye. {sadly}" — attach to the
+  // last segment instead of being dropped (or left as scoreable text).
+  if ((curDir || curCue) && segments.length) {
     const last = segments[segments.length - 1]
-    last.direction = last.direction ? `${last.direction}, ${curDir}` : curDir
+    if (curDir) last.direction = last.direction ? `${last.direction}, ${curDir}` : curDir
+    if (curCue) last.cue = last.cue ? `${last.cue}; ${curCue}` : curCue
   }
   const plain = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim()
   return { plain, segments }
 }
 
-/** The delivery segments for a beat: its explicit segments, or a single segment
- *  carrying any whole-line parenthetical as the direction. */
+/** The delivery segments for a beat (a single plain segment when it has none). */
 export function beatSegments(beat: Beat): LineSegment[] {
   if (beat.segments && beat.segments.length) return beat.segments
-  return [beat.parenthetical ? { text: beat.text, direction: beat.parenthetical } : { text: beat.text }]
+  return [{ text: beat.text }]
 }
 
-/** Rebuild a beat's segments/text/parenthetical from its raw dialogue text.
- *  Folds a leading whole-line parenthetical into the first segment's direction
- *  so premium tags and on-screen notes stay in sync. Mutates and returns beat. */
+/** Rebuild a beat's segments/text from its raw dialogue text. Mutates and
+ *  returns the beat. A line that is ONLY a cue — "{angry}" or "(waves)" with no
+ *  words — becomes the beat's parenthetical (displayed, not scored/spoken). */
 export function applySegments(beat: Beat): Beat {
   if (beat.kind !== 'dialogue') return beat
   const { plain, segments } = splitDirections(beat.text)
-  // A line that is ONLY a direction — "(bewildered)" with no words — must not
-  // remain as scoreable/speakable text; treat it as the line's parenthetical.
-  if (!plain && !segments.length) {
-    const dir = beat.text.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()
-    if (dir && looksLikeDirection(dir)) {
-      beat.parenthetical = beat.parenthetical || dir
+  if (!plain) {
+    const note = beat.text.replace(/[(){}]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (note) {
+      beat.parenthetical = beat.parenthetical || note
       beat.text = ''
-      delete beat.segments
-      return beat
     }
-  }
-  const hasInline = segments.length > 1 || segments.some((s) => s.direction)
-  if (!hasInline) {
     delete beat.segments
     return beat
   }
-  if (beat.parenthetical && segments[0] && !segments[0].direction) {
-    segments[0] = { ...segments[0], direction: beat.parenthetical }
-    beat.parenthetical = undefined
+  const hasInline = segments.length > 1 || segments.some((s) => s.direction || s.cue)
+  if (!hasInline) {
+    delete beat.segments
+    return beat
   }
   beat.text = plain
   beat.segments = segments
   return beat
 }
 
-/** Premium (ElevenLabs v3) delivery: inline acting tags, one per segment. */
+/** Premium (ElevenLabs v3) delivery: inline acting tags from VOCAL cues only —
+ *  performance cues are stage business, not something the voice should act. */
 export function segmentsToTaggedText(segments: LineSegment[]): string {
   return segments
     .map((s) => (s.direction ? `[${s.direction}] ${s.text}` : s.text))
@@ -113,7 +98,7 @@ export function segmentsToTaggedText(segments: LineSegment[]): string {
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
 
 // Emotion → prosody multipliers for the free Web Speech voice. Keys are matched
-// as substrings of the direction, so "very angry" and "angrily" both hit "ang".
+// as substrings of the vocal cue, so "very angry" and "angrily" both hit "ang".
 const PROSODY: Array<[RegExp, { rate: number; pitch: number }]> = [
   [/\bang|furi|rage|irate|snap|snarl/i, { rate: 1.12, pitch: 0.9 }],
   [/\bshout|yell|loud/i, { rate: 1.12, pitch: 1.12 }],
@@ -129,10 +114,12 @@ const PROSODY: Array<[RegExp, { rate: number; pitch: number }]> = [
   [/\bcalm|serene|steady|measured|matter-of-fact/i, { rate: 0.96, pitch: 0.98 }],
   [/\bsarcas|wry|mock|dry|ironic/i, { rate: 0.98, pitch: 0.95 }],
   [/\bproud|firm|resolute|command|defiant|bold/i, { rate: 1.0, pitch: 0.96 }],
-  [/\bple, |plead|beg|implor|desper/i, { rate: 1.05, pitch: 1.15 }],
+  [/\bplead|beg|implor|desper/i, { rate: 1.05, pitch: 1.15 }],
+  [/\burgent|hurried|rushed|breathless/i, { rate: 1.18, pitch: 1.05 }],
+  [/\bslow|deliberate|drawl/i, { rate: 0.78, pitch: 0.98 }],
 ]
 
-/** Map a direction note to Web Speech prosody multipliers (1 = neutral). */
+/** Map a vocal cue to Web Speech prosody multipliers (1 = neutral). */
 export function directionToProsody(direction?: string): { rate: number; pitch: number } {
   if (!direction) return { rate: 1, pitch: 1 }
   for (const [re, p] of PROSODY) if (re.test(direction)) return p

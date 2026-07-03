@@ -1271,3 +1271,39 @@ legend {
   height: 12px;
   border-width: 2px;
 }
+
+/* --- Cue rendering + editor cue palette ----------------------------------- */
+.seg-cue {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.82em;
+  margin: 0 0.35em 0 0.1em;
+  white-space: nowrap;
+}
+.cue-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+.cue-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.cue-chip {
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px dashed var(--accent-2);
+  background: transparent;
+  color: var(--accent);
+  cursor: grab;
+}
+.cue-chip:hover {
+  background: var(--selected-bg);
+}
+.cue-legend {
+  margin-top: 0.35rem;
+}

@@ -27,12 +27,30 @@ ROMEO
 (quietly, in awe)
 It is the east, and Juliet is the sun.
 
-Tip: a line in (parentheses) sets the delivery manner shown during rehearsal.
-You can also change delivery *mid-line* — the scene-partner voice follows each:
+Two kinds of cue, anywhere in a line:
+  (parentheses) = performance cues — shown to the actor, never spoken or scored
+  {braces}      = vocal cues — shape HOW the voice says the words that follow
 
-LEAR: (bewildered) Who is it can tell me who I am? (angrily) Does any here know me? (defeated) I am a very foolish fond old man.
+LEAR: {bewildered} Who is it can tell me who I am? (rises) {angrily} Does any here know me? {defeated} I am a very foolish fond old man.
 
 Or use “Load file” to import a .fountain/.txt/PDF script — or even a photo or scan of a page (it’s read with OCR).`
+
+/** Starter vocal cues for the palette — click or drag into the script. Any
+ *  word or phrase works in {braces}; these are just common ones. */
+const VOCAL_SAMPLES = [
+  'whispering',
+  'shouting',
+  'angry',
+  'tearful',
+  'joyful',
+  'terrified',
+  'sarcastic',
+  'gentle',
+  'excited',
+  'weary',
+  'urgent',
+  'slowly',
+]
 
 export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void }) {
   const { settings, reloadPlays } = useApp()
@@ -46,6 +64,20 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
   const [importing, setImporting] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const scriptRef = useRef<HTMLTextAreaElement>(null)
+
+  /** Insert a cue at the caret (used by the palette chips; drag-drop is native). */
+  function insertCue(snippet: string) {
+    const ta = scriptRef.current
+    if (!ta) return
+    const at = ta.selectionStart ?? scriptText.length
+    const end = ta.selectionEnd ?? at
+    setScriptText(scriptText.slice(0, at) + snippet + scriptText.slice(end))
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(at + snippet.length, at + snippet.length)
+    })
+  }
 
   useEffect(() => {
     ;(async () => {
@@ -201,9 +233,30 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
               <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Optional" />
             </label>
           </div>
+          <div className="cue-palette">
+            <span className="muted small">
+              Vocal cues — click or drag one into the script, or type your own <code>{'{anything}'}</code>:
+            </span>
+            <div className="cue-chips">
+              {VOCAL_SAMPLES.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="cue-chip"
+                  draggable
+                  title={`Insert {${c}} — the voice ${c === 'slowly' ? 'delivers the next words slowly' : `sounds ${c}`}`}
+                  onDragStart={(e) => e.dataTransfer.setData('text/plain', `{${c}} `)}
+                  onClick={() => insertCue(`{${c}} `)}
+                >
+                  {`{${c}}`}
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="field">
             <span>Script</span>
             <textarea
+              ref={scriptRef}
               className="script-area"
               value={scriptText}
               onChange={(e) => setScriptText(e.target.value)}
@@ -211,6 +264,11 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
               spellCheck={false}
             />
           </label>
+          <p className="muted small cue-legend">
+            <em className="seg-cue">(parentheses)</em> are performance cues — shown to the actor, never spoken or scored ·{' '}
+            <em className="seg-direction">{'{braces}'}</em> are vocal cues — they shape how the voice delivers the words
+            after them.
+          </p>
           <p className="muted">
             {parsed.characters.length} characters · {dialogueCount} lines detected
           </p>

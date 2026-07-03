@@ -38,14 +38,17 @@ export interface Character {
 
 export type BeatKind = 'dialogue' | 'action' | 'heading'
 
-/** A span of a line delivered with a single emotional colour. A line that
- *  shifts "(bewildered) … (angrily) … (defeated) …" becomes several segments,
- *  each spoken with its own delivery: premium engines get the direction as an
- *  inline acting tag, and the free voices approximate it with pitch/rate/pause. */
+/** A span of a line delivered with a single colour. Two kinds of inline cue:
+ *  {braces} are VOCAL cues ("{angrily}") — they steer the voice (premium
+ *  engines get them as acting tags; free voices approximate with pitch/rate);
+ *  (parentheses) are PERFORMANCE cues ("(draws his sword)") — shown to the
+ *  actor but never spoken, scored, or fed to the voice. */
 export interface LineSegment {
   text: string
-  /** Delivery note for this span, e.g. "bewildered" (no surrounding parens). */
+  /** Vocal cue for this span, e.g. "bewildered" (no surrounding braces). */
   direction?: string
+  /** Performance cue preceding this span, e.g. "to the Ghost" (no parens). */
+  cue?: string
 }
 
 export interface Beat {

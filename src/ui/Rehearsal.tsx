@@ -1222,8 +1222,8 @@ function nameOf(play: Play, id?: string): string {
   return play.characters.find((c) => c.id === id)?.name ?? '—'
 }
 
-/** Render a line's words, optionally showing inline delivery directions before
- *  each segment when the line shifts emotion partway through. */
+/** Render a line's words with its inline cues: {vocal} cues in accent italics,
+ *  (performance) cues in muted italics. Neither is spoken or scored. */
 function LineText({ beat, showDirections }: { beat: Beat; showDirections: boolean }) {
   const segments = beat.segments
   if (!showDirections || !segments || segments.length === 0) {
@@ -1233,7 +1233,8 @@ function LineText({ beat, showDirections }: { beat: Beat; showDirections: boolea
     <p className="beat-text">
       {segments.map((s, i) => (
         <span key={i}>
-          {s.direction && <em className="seg-direction">({s.direction})</em>}
+          {s.cue && <em className="seg-cue">({s.cue})</em>}
+          {s.direction && <em className="seg-direction">{`{${s.direction}}`}</em>}
           {s.text}
           {i < segments.length - 1 ? ' ' : ''}
         </span>
