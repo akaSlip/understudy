@@ -27,7 +27,7 @@ import { useApp } from './useApp'
 import { WordDiff } from './WordDiff'
 
 export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => void }) {
-  const { settings } = useApp()
+  const { settings, updateSettings } = useApp()
   const [play, setPlay] = useState<Play | null>(null)
   const [myCharId, setMyCharId] = useState('')
   const [spec, setSpec] = useState<SectionSpec | null>(null)
@@ -219,6 +219,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
       levelStore={levelStore}
       engine={engineRef.current!}
       myCharId={myCharId}
+      onUpdateSettings={updateSettings}
       voiceAssignments={voiceAssignments}
       onChangeVoice={(charId, voiceId) => {
         engineRef.current?.setVoice(charId, voiceId)
@@ -501,6 +502,7 @@ function RunningView(props: {
   myCharId: string
   voiceAssignments: Map<string, VoiceAssignment>
   onChangeVoice: (characterId: string, voiceId?: string) => void
+  onUpdateSettings: (patch: Partial<AppSettings>) => void
   onStop: () => void
   onExit: () => void
 }) {
@@ -508,6 +510,8 @@ function RunningView(props: {
   const nameById = useMemo(() => new Map(play.characters.map((c) => [c.id, c.name])), [play])
   const [autoCue, setAutoCue] = useState(settings.autoAdvance)
   const [showVoices, setShowVoices] = useState(false)
+  const [showTune, setShowTune] = useState(false)
+  const [scoring, setScoring] = useState(true)
   const beat = state.beat
   const speaker = beat?.characterId ? nameById.get(beat.characterId) : undefined
   const paused = state.phase === 'paused'
@@ -641,12 +645,27 @@ function RunningView(props: {
           </button>
           <button
             className={`ctl ${showVoices ? 'active' : ''}`}
-            onClick={() => setShowVoices((v) => !v)}
+            onClick={() => {
+              setShowVoices((v) => !v)
+              setShowTune(false)
+            }}
             title="Change the scene-partner voices"
             aria-pressed={showVoices}
           >
             <span className="ctl-icon">🎭</span>
             <span className="ctl-label">Voices</span>
+          </button>
+          <button
+            className={`ctl ${showTune ? 'active' : ''}`}
+            onClick={() => {
+              setShowTune((v) => !v)
+              setShowVoices(false)
+            }}
+            title="Scoring and projection controls"
+            aria-pressed={showTune}
+          >
+            <span className="ctl-icon">🎚</span>
+            <span className="ctl-label">Tune</span>
           </button>
           <button className="ctl danger" onClick={props.onStop} title="Finish and see your results">
             <span className="ctl-icon">■</span>
@@ -654,6 +673,75 @@ function RunningView(props: {
           </button>
         </div>
       </div>
+
+      {showTune && (
+        <div
+          className="voice-panel tune-panel"
+          role="dialog"
+          aria-label="Scoring and projection"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowTune(false)
+          }}
+        >
+          <div className="voice-panel-head">
+            <strong>Scoring &amp; projection</strong>
+            <button className="ghost" onClick={() => setShowTune(false)} autoFocus>
+              Done
+            </button>
+          </div>
+          <label className="opt">
+            <input
+              type="checkbox"
+              checked={scoring}
+              onChange={(e) => {
+                setScoring(e.target.checked)
+                engine.setScoring(e.target.checked)
+              }}
+            />
+            <span>
+              <strong>Score my lines</strong> — untick to read along without the mic (advance with Next)
+            </span>
+          </label>
+          <label className="range">
+            <span>Accuracy needed to pass: {Math.round(settings.passThreshold * 100)}%</span>
+            <input
+              type="range"
+              min={0.5}
+              max={1}
+              step={0.05}
+              value={settings.passThreshold}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                props.onUpdateSettings({ passThreshold: v })
+                engine.setPassThreshold(v)
+              }}
+            />
+          </label>
+          <label className="opt">
+            <input
+              type="checkbox"
+              checked={settings.projectionCoaching}
+              onChange={(e) => props.onUpdateSettings({ projectionCoaching: e.target.checked })}
+            />
+            <span>
+              <strong>Projection meter</strong> — show a loudness target on the listening meter
+            </span>
+          </label>
+          {settings.projectionCoaching && (
+            <label className="range">
+              <span>Projection target: {Math.round(settings.projectionTarget * 100)}%</span>
+              <input
+                type="range"
+                min={0.2}
+                max={0.9}
+                step={0.05}
+                value={settings.projectionTarget}
+                onChange={(e) => props.onUpdateSettings({ projectionTarget: Number(e.target.value) })}
+              />
+            </label>
+          )}
+        </div>
+      )}
 
       {showVoices && (
         <VoicePanel

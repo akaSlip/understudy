@@ -62,6 +62,16 @@ async function load(model: 'tiny' | 'base', forceWasm = false): Promise<void> {
           progress_callback,
         })
         currentDevice = a.device
+        // Warm-up inference on half a second of silence: the first real call
+        // otherwise pays one-time kernel compilation (seconds on WASM), which
+        // made the actor's FIRST line slow to score. Runs behind the loading
+        // screen, so line 1 is as fast as line 10.
+        post({ type: 'progress', status: 'warming up', file: undefined })
+        try {
+          await transcriber(new Float32Array(8000))
+        } catch {
+          /* warm-up is best-effort */
+        }
         post({ type: 'ready', device: a.device })
         return
       } catch (e) {

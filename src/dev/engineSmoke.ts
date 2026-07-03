@@ -542,5 +542,25 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
   eng.dispose()
 }
 
+{
+  // In-rehearsal tuning: scoring toggle (read-along mode) + live pass threshold.
+  const { eng, say, state } = mkAuditEngine({ partnerNeverEnds: true })
+  await eng.start(); await tick()
+  eng.setScoring(false) // read-along: current line becomes a prompt, mic off
+  await tick()
+  check('scoring off: line shown as a prompt (stuck + revealed)', state().phase === 'stuck' && state().revealed === true, state().phase)
+  eng.next(); await tick() // → P1 partner (never ends)
+  eng.setScoring(true)
+  eng.next(); await tick() // → L2 my line, scoring back on
+  check('scoring on again: line arms for listening', state().phase === 'listening', state().phase)
+  eng.setPassThreshold(1) // exact only, applied live
+  say('delta epsilon zzz'); await tick() // 2/3 correct
+  check('live threshold applies to the next scoring', state().score !== undefined && !state().score!.passed, state().score?.accuracy)
+  eng.setPassThreshold(0.5)
+  say('zeta'); await tick() // completes the line; 2/3 ≥ 0.5 and end reached
+  check('lowered threshold passes the same delivery', state().attempts.some((a) => a.beatId === 'L2' && a.passed), state().attempts)
+  eng.dispose()
+}
+
 console.log(`\n${fail === 0 ? 'ENGINE OK' : fail + ' FAILURE(S)'}`)
 if (fail > 0 && typeof process !== 'undefined') process.exitCode = 1

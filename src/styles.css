@@ -1188,3 +1188,10 @@ legend {
 .premium-actions .ok {
   color: #4bbf73;
 }
+
+/* In-rehearsal tune panel (shares .voice-panel chrome). */
+.tune-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}

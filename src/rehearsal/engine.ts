@@ -114,6 +114,9 @@ export class RehearsalEngine {
   private levelCount = 0
   // Live override for auto-cue (auto-advance); falls back to the setting.
   private autoCueOverride: boolean | undefined
+  // Live in-rehearsal controls: scoring on/off and the pass threshold.
+  private scoringOverride: boolean | undefined
+  private passThresholdOverride: number | undefined
 
   private stuckTimer?: ReturnType<typeof setTimeout>
   private revealBackstopTimer?: ReturnType<typeof setTimeout>
@@ -175,6 +178,35 @@ export class RehearsalEngine {
 
   private autoCue(): boolean {
     return this.autoCueOverride ?? this.deps.settings.autoAdvance
+  }
+
+  private scoringOn(): boolean {
+    return this.scoringOverride ?? true
+  }
+
+  private passThreshold(): number {
+    return this.passThresholdOverride ?? this.deps.settings.passThreshold
+  }
+
+  /** Adjust the accuracy-to-pass live; applies from the next scoring event. */
+  setPassThreshold(v: number): void {
+    this.passThresholdOverride = v
+  }
+
+  /** Turn line scoring on/off mid-rehearsal. Off = read-along mode: the actor's
+   *  lines are shown as prompts, the mic stays off, and they advance with Next. */
+  setScoring(on: boolean): void {
+    this.scoringOverride = on
+    if (!this.isMyLine() || this.phase === 'paused' || this.phase === 'done') return
+    if (!on) {
+      this.clearTimers()
+      this.deps.recognizer.setActive(false)
+      this.revealed = true
+      if (this.phase === 'listening') this.phase = 'stuck'
+      this.emit()
+    } else if (this.phase === 'stuck' || this.phase === 'listening') {
+      this.retryLine() // re-arm the current line for a fresh scored attempt
+    }
   }
 
   /** Toggle auto-cue mid-session. Turning it on while sitting on a passed line
@@ -310,6 +342,14 @@ export class RehearsalEngine {
     }
 
     if (beat.characterId === this.deps.myCharacterId) {
+      if (!this.scoringOn()) {
+        // Read-along mode: show the line as a prompt, no mic, advance via Next.
+        this.deps.recognizer.setActive(false)
+        this.revealed = true
+        this.phase = 'stuck'
+        this.emit()
+        return
+      }
       // The actor's line — arm the mic for a fresh capture session.
       this.resetProjection()
       this.phase = 'listening'
@@ -368,10 +408,14 @@ export class RehearsalEngine {
     }
   }
 
-  /** Fire-and-forget pre-generation of the next `count` scene-partner lines
-   *  (blob voices only; the Speaker no-ops for the live Web Speech voice and
-   *  de-dupes against the eventual playback). */
+  /** Fire-and-forget pre-generation of upcoming scene-partner lines (blob
+   *  voices only; the Speaker no-ops for the live Web Speech voice and de-dupes
+   *  against the eventual playback). Kokoro looks further ahead than the given
+   *  count: on-device generation is free but slow (especially WASM), and a
+   *  cluster of consecutive partner lines can outrun a shallow prefetch —
+   *  the "partner slow to speak mid-scene on first run" symptom. */
   private prefetchAhead(count: number): void {
+    if (this.deps.settings.tts === 'kokoro') count = Math.max(count, 4)
     let found = 0
     for (let p = this.pos + 1; p < this.order.length && found < count; p++) {
       const b = this.beats[this.order[p]]
@@ -404,7 +448,7 @@ export class RehearsalEngine {
     this.transcript = (this.transcript + ' ' + text).trim()
     const beat = this.curBeat()!
     this.score = scoreLine(beat.text, this.transcript, {
-      passThreshold: this.deps.settings.passThreshold,
+      passThreshold: this.passThreshold(),
       strict: this.deps.settings.strict,
     })
     // Got speech → reset the "stuck" watchdog.

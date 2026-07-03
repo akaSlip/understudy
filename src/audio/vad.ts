@@ -27,7 +27,11 @@ export class MicVAD {
   private sink: GainNode | null = null
 
   private speaking = false
-  private noiseFloor = 0.005
+  // Start LOW so the first line isn't missed: the floor only adapts during
+  // silence, and a high initial guess (old 0.005 → threshold 0.015) meant the
+  // opening words of a session fell under the bar. 0.002×3 stays below the
+  // 0.006 absolute floor, so the first frames are judged by that floor alone.
+  private noiseFloor = 0.002
   private voicedFrames = 0
   private silenceRun = 0 // seconds of trailing silence
   private buf: Float32Array[] = []
