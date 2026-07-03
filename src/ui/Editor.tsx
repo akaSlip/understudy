@@ -6,7 +6,7 @@ import { AGE_BANDS } from '../lib/directions'
 import { extractText, needsExtraction } from '../lib/ingest'
 import { characterKey, uid } from '../lib/util'
 import { getPlay, savePlay } from '../store/playsRepo'
-import { isPremiumEngine } from '../tts/premium'
+import { ENGINE_TRAITS } from '../tts/engineTraits'
 import { listVoicesForEngine } from '../tts/voices'
 import type { TTSVoice } from '../tts/webspeech'
 import { useApp } from './useApp'
@@ -57,13 +57,9 @@ const VOCAL_SAMPLES = [
 
 export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void }) {
   const { settings, reloadPlays } = useApp()
-  // A standing character personality only genuinely changes speech mannerism on
-  // the instruction-steerable cloud voices — the free voices ignore it, so the
-  // field is hidden there rather than offering a placebo. Age works on the
-  // System voice (pitch/rate) and cloud engines (instruction); Kokoro has no
-  // age control, so the select is hidden for it.
-  const personalityWorks = isPremiumEngine(settings.tts)
-  const ageWorks = settings.tts !== 'kokoro'
+  // Capability-gated fields: only offer controls the selected engine can
+  // actually honour (no placebo inputs). One table, not scattered predicates.
+  const { personality: personalityWorks, age: ageWorks } = ENGINE_TRAITS[settings.tts]
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
   const [scriptText, setScriptText] = useState('')

@@ -14,7 +14,8 @@
 import type { LineSegment, PremiumEngine, VoiceAssignment } from '../types'
 import { segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
-import { PREMIUM_VOICES, type GenderedVoice } from './premiumVoices'
+import { setElevenVoices, currentPremiumVoices, type GenderedVoice } from './premiumVoices'
+import { pcmBytesToWavBlob } from '../lib/wav'
 
 export interface PremiumConfig {
   engine: PremiumEngine
@@ -110,32 +111,11 @@ export function buildAzureSSML(segments: LineSegment[], voiceName: string): stri
 }
 
 /** Decode base64 PCM (16-bit LE mono) into a playable WAV blob (Gemini output). */
-export function pcmToWav(pcmBase64: string, sampleRate = 24000, channels = 1, bits = 16): Blob {
+export function pcmToWav(pcmBase64: string, sampleRate = 24000, channels = 1): Blob {
   const bin = atob(pcmBase64)
-  const len = bin.length
-  const blockAlign = (channels * bits) / 8
-  const byteRate = sampleRate * blockAlign
-  const buffer = new ArrayBuffer(44 + len)
-  const view = new DataView(buffer)
-  const writeStr = (o: number, s: string) => {
-    for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i))
-  }
-  writeStr(0, 'RIFF')
-  view.setUint32(4, 36 + len, true)
-  writeStr(8, 'WAVE')
-  writeStr(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true) // PCM
-  view.setUint16(22, channels, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, byteRate, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, bits, true)
-  writeStr(36, 'data')
-  view.setUint32(40, len, true)
-  const out = new Uint8Array(buffer)
-  for (let i = 0; i < len; i++) out[44 + i] = bin.charCodeAt(i)
-  return new Blob([buffer], { type: 'audio/wav' })
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return pcmBytesToWavBlob(bytes, sampleRate, channels)
 }
 
 // --- dispatch --------------------------------------------------------------
@@ -172,8 +152,8 @@ export function elevenLabsText(model: string, segments: LineSegment[]): string {
 // Free-plan API keys can only speak the CURRENT premade voices and the
 // account's own ("My Voices") — anything else 402s ("library voice"). Voice ids
 // also shift over time, so the only reliable source is the account's live
-// list. On success the shared registry (PREMIUM_VOICES.elevenlabs) is replaced
-// in place, so auto-casting and every voice picker use the real list.
+// list. On success the list is published via setElevenVoices(), and every
+// consumer (auto-casting, pickers) reads it through currentPremiumVoices().
 
 let elevenFetchKey: string | null = null
 let elevenFetch: Promise<GenderedVoice[]> | null = null
@@ -199,7 +179,7 @@ export function mapElevenVoice(v: any): GenderedVoice | null {
 
 export function fetchElevenVoices(cfg: { apiKey?: string; proxyUrl?: string }): Promise<GenderedVoice[]> {
   const key = cfg.apiKey ?? ''
-  if (!key && !cfg.proxyUrl) return Promise.resolve(PREMIUM_VOICES.elevenlabs)
+  if (!key && !cfg.proxyUrl) return Promise.resolve(currentPremiumVoices('elevenlabs'))
   if (elevenFetch && elevenFetchKey === key) return elevenFetch
   elevenFetchKey = key
   elevenFetch = (async () => {
@@ -212,7 +192,7 @@ export function fetchElevenVoices(cfg: { apiKey?: string; proxyUrl?: string }): 
       .map(mapElevenVoice)
       .filter((v): v is GenderedVoice => v !== null)
       .sort((a, b) => accentRank(a.label) - accentRank(b.label)) // UK → AU → US → rest
-    if (voices.length) PREMIUM_VOICES.elevenlabs.splice(0, PREMIUM_VOICES.elevenlabs.length, ...voices)
+    if (voices.length) setElevenVoices(voices)
     return voices
   })()
   elevenFetch.catch(() => {
@@ -226,7 +206,7 @@ export function fetchElevenVoices(cfg: { apiKey?: string; proxyUrl?: string }): 
 async function elevenLabs(segments: LineSegment[], voiceId: string | undefined, cfg: PremiumConfig): Promise<Blob> {
   // Default to the first voice of the (possibly account-fetched) pool — a
   // current premade voice that free-plan API keys are allowed to use.
-  const id = voiceId || PREMIUM_VOICES.elevenlabs[0]?.id || 'EXAVITQu4vr4xnSDxMaL'
+  const id = voiceId || currentPremiumVoices('elevenlabs')[0]?.id || 'EXAVITQu4vr4xnSDxMaL'
   const model = cfg.model || 'eleven_v3'
   const body = JSON.stringify({ text: elevenLabsText(model, segments), model_id: model })
   const direct = `https://api.elevenlabs.io/v1/text-to-speech/${id}`

@@ -11,7 +11,8 @@ import type { Recognizer } from '../audio/recognizer'
 import type { AppSettings } from '../store/settings'
 import type { Speaker } from '../tts/speaker'
 import { scoreLine } from '../lib/scorer'
-import { agePhrase, beatSegments } from '../lib/directions'
+import { beatSegments } from '../lib/directions'
+import { ENGINE_TRAITS } from '../tts/engineTraits'
 
 export type Phase = 'idle' | 'partner' | 'stage' | 'listening' | 'scored' | 'stuck' | 'paused' | 'done'
 
@@ -118,8 +119,8 @@ export class RehearsalEngine {
   private levelCount = 0
   // Live override for auto-cue (auto-advance); falls back to the setting.
   private autoCueOverride: boolean | undefined
-  // Live in-rehearsal controls: scoring on/off and the pass threshold.
-  private scoringOverride: boolean | undefined
+  // Live in-rehearsal controls (Tune panel).
+  private scoring = true
   private passThresholdOverride: number | undefined
 
   private stuckTimer?: ReturnType<typeof setTimeout>
@@ -184,10 +185,6 @@ export class RehearsalEngine {
     return this.autoCueOverride ?? this.deps.settings.autoAdvance
   }
 
-  private scoringOn(): boolean {
-    return this.scoringOverride ?? true
-  }
-
   private passThreshold(): number {
     return this.passThresholdOverride ?? this.deps.settings.passThreshold
   }
@@ -200,7 +197,7 @@ export class RehearsalEngine {
   /** Turn line scoring on/off mid-rehearsal. Off = read-along mode: the actor's
    *  lines are shown as prompts, the mic stays off, and they advance with Next. */
   setScoring(on: boolean): void {
-    this.scoringOverride = on
+    this.scoring = on
     if (!this.isMyLine() || this.phase === 'paused' || this.phase === 'done') return
     if (!on) {
       this.clearTimers()
@@ -347,7 +344,7 @@ export class RehearsalEngine {
     }
 
     if (beat.characterId === this.deps.myCharacterId) {
-      if (!this.scoringOn()) {
+      if (!this.scoring) {
         // Read-along mode: show the line as a prompt, no mic, advance via Next.
         this.deps.recognizer.setActive(false)
         this.revealed = true
@@ -390,12 +387,6 @@ export class RehearsalEngine {
    *  transition. */
   private async performLine(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
     const isAbort = (e: unknown) => (e as { name?: string })?.name === 'AbortError'
-    // Character-level age + personality (cast panel) colour EVERY span the
-    // character speaks; an inline {vocal} cue overrides them for its own words.
-    const standing = [agePhrase(voice.age), voice.direction].filter(Boolean).join(', ')
-    if (standing) {
-      segments = segments.map((s) => (s.direction ? s : { ...s, direction: standing }))
-    }
     const onStart = () => {
       this.partnerSpeaking = true // audio is actually playing now
       this.emit()
@@ -430,7 +421,7 @@ export class RehearsalEngine {
    *  cluster of consecutive partner lines can outrun a shallow prefetch —
    *  the "partner slow to speak mid-scene on first run" symptom. */
   private prefetchAhead(count: number): void {
-    if (this.deps.settings.tts === 'kokoro') count = Math.max(count, 4)
+    count = Math.max(count, ENGINE_TRAITS[this.deps.settings.tts]?.prefetchDepth ?? count)
     let found = 0
     for (let p = this.pos + 1; p < this.order.length && found < count; p++) {
       const b = this.beats[this.order[p]]

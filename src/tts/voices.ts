@@ -7,7 +7,7 @@
 import type { Character, TTSEngine, VoiceAssignment } from '../types'
 import { guessGender, type Gender } from '../lib/gender'
 import { isPremiumEngine } from './premium'
-import { PREMIUM_VOICES } from './premiumVoices'
+import { currentPremiumVoices } from './premiumVoices'
 import { KOKORO_VOICES } from './kokoro'
 import { listWebSpeechVoices, type TTSVoice } from './webspeech'
 
@@ -20,7 +20,7 @@ export interface PoolVoice {
 export async function listVoicesForEngine(engine: TTSEngine): Promise<TTSVoice[]> {
   if (engine === 'kokoro') return KOKORO_VOICES.map((v) => ({ id: v.id, label: v.label }))
   if (engine === 'webspeech') return listWebSpeechVoices()
-  if (isPremiumEngine(engine)) return PREMIUM_VOICES[engine].map((v) => ({ id: v.id, label: v.label }))
+  if (isPremiumEngine(engine)) return currentPremiumVoices(engine).map((v) => ({ id: v.id, label: v.label }))
   return []
 }
 
@@ -54,7 +54,7 @@ export async function genderedPool(engine: TTSEngine): Promise<PoolVoice[]> {
     return pool.length ? pool : [{ id: '' }]
   }
   if (isPremiumEngine(engine)) {
-    return PREMIUM_VOICES[engine].map((v) => ({ id: v.id, gender: v.gender }))
+    return currentPremiumVoices(engine).map((v) => ({ id: v.id, gender: v.gender }))
   }
   return [{ id: '' }]
 }

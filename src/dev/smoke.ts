@@ -4,12 +4,12 @@
 //     --outfile=/tmp/understudy-smoke.mjs && node /tmp/understudy-smoke.mjs
 
 import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
-import { AGE_BANDS, agePhrase, ageProsody, directionToProsody, segmentsToTaggedText } from '../lib/directions'
+import { AGE_BANDS, agePhrase, ageProsody, applyStandingDelivery, directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
 import { cleanEditionArtifacts, isImage, isPdf, needsExtraction, reconstructLines, shapeOcrScript } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
 import { accentRank, azureStyle, buildAzureSSML, directionsInstruction, elevenLabsText, fetchElevenVoices, geminiPrompt, isPremiumEngine, mapElevenVoice, pcmToWav } from '../tts/premium'
-import { PREMIUM_VOICES } from '../tts/premiumVoices'
+import { PREMIUM_VOICES, currentPremiumVoices } from '../tts/premiumVoices'
 import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
 import { SEED_PLAYS, buildSeedPlay } from '../lib/seed'
 import { KOKORO_VOICES } from '../tts/kokoro'
@@ -328,9 +328,19 @@ check('elevenlabs accent rank UK→AU→US', accentRank('George — british') < 
 // Age bands: prosody for the System voice, phrase for cloud engines.
 check('child raises pitch', ageProsody('child').pitch > 1.3)
 check('elderly lowers pitch and slows', ageProsody('elderly').pitch < 0.9 && ageProsody('elderly').rate < 0.9)
-check('adult is neutral', ageProsody('adult').pitch === 1 && ageProsody('adult').rate === 1 && agePhrase('adult') === undefined)
+check('unset age (adult) is neutral', ageProsody(undefined).pitch === 1 && ageProsody(undefined).rate === 1 && agePhrase(undefined) === undefined)
 check('elderly phrase for cloud engines', agePhrase('elderly') === 'an elderly, aged voice')
-check('all six bands offered', AGE_BANDS.length === 6 && AGE_BANDS[0].value === 'child' && AGE_BANDS[5].value === 'elderly')
+check("five bands offered ('adult' IS the unset default)", AGE_BANDS.length === 5 && AGE_BANDS[0].value === 'child' && AGE_BANDS[4].value === 'elderly')
+
+// Standing delivery (age + personality) composition — lives in the TTS layer
+// so playback and pre-generation compose identically (same cache keys).
+const standSegs = applyStandingDelivery(
+  [{ text: 'Plain span.' }, { text: 'Angry span.', direction: 'furious' }],
+  { direction: 'pompous and clipped', age: 'elderly' },
+)
+check('standing delivery fills spans with no inline cue', standSegs[0].direction === 'an elderly, aged voice, pompous and clipped', standSegs)
+check('inline vocal cue overrides the standing delivery', standSegs[1].direction === 'furious')
+check('no standing delivery → segments untouched', applyStandingDelivery([{ text: 'x' }], {})[0].direction === undefined)
 
 console.log('\n— cloud voice engines —')
 check(
@@ -377,7 +387,9 @@ check('mapElevenVoice rejects malformed entries', mapElevenVoice({ name: 'NoId' 
   const fetched = await fetchElevenVoices({ apiKey: 'k-test' })
   g.fetch = realFetch
   check('fetchElevenVoices returns the account voices', fetched.length === 2 && fetched[0].id === 'acc1')
-  check('registry replaced with account voices (casting pool follows)', PREMIUM_VOICES.elevenlabs.length === 2 && PREMIUM_VOICES.elevenlabs[1].label === 'Marcus — male', PREMIUM_VOICES.elevenlabs.map((v) => v.id))
+  const live = currentPremiumVoices('elevenlabs')
+  check('live voice list serves the account voices (casting pool follows)', live.length === 2 && live[1].label === 'Marcus — male', live.map((v) => v.id))
+  check('static fallback list is NOT mutated', PREMIUM_VOICES.elevenlabs.length > 2 && PREMIUM_VOICES.elevenlabs[0].id !== 'acc1')
   const casting = await buildVoiceMap(
     [{ id: 'c1', name: 'Lady Bracknell' }, { id: 'c2', name: 'Jack' }] as unknown as import('../types').Character[],
     'elevenlabs',

@@ -2,7 +2,7 @@
 // right engine, caches blob-producing engines, and gives clean stop/abort.
 
 import type { LineSegment, VoiceAssignment } from '../types'
-import { ageProsody } from '../lib/directions'
+import { ageProsody, applyStandingDelivery } from '../lib/directions'
 import { getCachedAudio, hasCachedAudio, putCachedAudio } from '../store/audioCache'
 import { generateKokoro } from './kokoro'
 import { generatePremium, isPremiumEngine, plainText, type PremiumConfig } from './premium'
@@ -54,6 +54,7 @@ export class Speaker {
   /** Speak a line, honouring inline emotion shifts. Web Speech varies pitch/rate
    *  per segment; blob engines (Kokoro / cloud) synthesise + cache the audio. */
   async speakSegments(segments: LineSegment[], voice: VoiceAssignment, onStart?: () => void): Promise<void> {
+    segments = applyStandingDelivery(segments, voice)
     this.stop()
     const controller = new AbortController()
     this.abort = controller
@@ -89,6 +90,7 @@ export class Speaker {
    *  cache's LRU order. */
   async pregenerateSegments(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
     if (voice.engine === 'webspeech') return // spoken live, nothing to cache
+    segments = applyStandingDelivery(segments, voice) // same composition as playback → same cache key
     const key = this.keyFor(voice, segments)
     if (await hasCachedAudio(key)) return
     await this.generate(key, voice, segments)

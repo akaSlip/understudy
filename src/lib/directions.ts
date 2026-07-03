@@ -142,11 +142,11 @@ export { clamp as clampProsody }
 
 import type { AgeBand } from '../types'
 
+// 'adult' is deliberately absent: it IS the neutral default (age unset).
 export const AGE_BANDS: Array<{ value: AgeBand; label: string }> = [
   { value: 'child', label: 'Child' },
   { value: 'adolescent', label: 'Adolescent' },
   { value: 'young-adult', label: 'Young adult' },
-  { value: 'adult', label: 'Adult' },
   { value: 'senior', label: 'Senior' },
   { value: 'elderly', label: 'Elderly' },
 ]
@@ -168,6 +168,19 @@ export function agePhrase(age?: AgeBand): string | undefined {
     default:
       return undefined
   }
+}
+
+/** Fold a character's standing delivery (age + personality) into segments that
+ *  carry no inline {vocal} cue of their own. Lives here — with the other cue
+ *  logic — so speaking and pre-generation compose IDENTICALLY (cache keys are
+ *  derived from the composed segments). */
+export function applyStandingDelivery(
+  segments: LineSegment[],
+  voice: { direction?: string; age?: AgeBand },
+): LineSegment[] {
+  const standing = [agePhrase(voice.age), voice.direction].filter(Boolean).join(', ')
+  if (!standing) return segments
+  return segments.map((s) => (s.direction ? s : { ...s, direction: standing }))
 }
 
 /** Pitch/rate multipliers approximating age on the System (Web Speech) voice. */

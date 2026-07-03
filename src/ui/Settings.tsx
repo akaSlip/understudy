@@ -4,7 +4,7 @@ import { webSpeechSupported } from '../audio/webSpeechRecognizer'
 import { compatibilityReport, detectCapabilities } from '../lib/capabilities'
 import { synthesisSupported } from '../tts/webspeech'
 import { fetchElevenVoices, isPremiumEngine } from '../tts/premium'
-import { ENGINE_INFO, PREMIUM_VOICES, type GenderedVoice } from '../tts/premiumVoices'
+import { ENGINE_INFO, currentPremiumVoices, type GenderedVoice } from '../tts/premiumVoices'
 import { Speaker } from '../tts/speaker'
 import type { PremiumSettings } from '../store/settings'
 import { audioCacheStats, clearAudioCache } from '../store/audioCache'
@@ -352,7 +352,7 @@ function PremiumVoiceConfig(props: {
   const { engine, cfg, rate, onPatch } = props
   const info = ENGINE_INFO[engine]
   const [test, setTest] = useState<'idle' | 'testing' | 'ok' | string>('idle')
-  const [voiceList, setVoiceList] = useState<GenderedVoice[]>(PREMIUM_VOICES[engine])
+  const [voiceList, setVoiceList] = useState<GenderedVoice[]>(currentPremiumVoices(engine))
   const speakerRef = useRef<Speaker | null>(null)
 
   // ElevenLabs: the usable voices depend on the ACCOUNT (free API keys can't
@@ -360,14 +360,19 @@ function PremiumVoiceConfig(props: {
   useEffect(() => {
     if (engine !== 'elevenlabs' || (!cfg.apiKey && !cfg.proxyUrl)) return
     let alive = true
-    fetchElevenVoices(cfg).then(
-      (v) => {
-        if (alive && v.length) setVoiceList([...v])
-      },
-      () => {},
-    )
+    // Debounced: the effect re-runs per keystroke of the key field, and every
+    // partial key would otherwise fire a doomed 401 request at the API.
+    const t = setTimeout(() => {
+      fetchElevenVoices(cfg).then(
+        (v) => {
+          if (alive && v.length) setVoiceList([...v])
+        },
+        () => {},
+      )
+    }, 500)
     return () => {
       alive = false
+      clearTimeout(t)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, cfg.apiKey, cfg.proxyUrl])

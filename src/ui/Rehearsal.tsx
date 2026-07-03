@@ -131,7 +131,9 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         recognizer = createRecognizer(settings)
         recognizerRef.current = recognizer
       }
-      await recognizer.init((p) =>
+      // The recognizer model load (seconds) and the TTS voice prep are
+      // independent — run them concurrently instead of back-to-back.
+      const recognizerReady = recognizer.init((p) =>
         setLoadMsg(`Loading speech model… ${p.progress != null ? Math.round(p.progress * 100) + '%' : ''}`),
       )
       const premium: PremiumConfig | null = isPremiumEngine(settings.tts)
@@ -139,10 +141,14 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         : null
       const speaker = new Speaker({ rate: settings.ttsRate, premium })
       if (settings.tts === 'kokoro') void warmupKokoro().catch(() => {}) // pre-load so line 1 doesn't stall
-      // ElevenLabs: refresh the account's usable voices before casting, so the
-      // auto-cast pool can't contain voices the plan is not allowed to speak.
-      if (settings.tts === 'elevenlabs' && premium) await fetchElevenVoices(premium).catch(() => {})
-      const voiceMap = await buildVoiceMap(play.characters, settings.tts, settings.ttsRate, myCharId)
+      const voiceMapReady = (async () => {
+        // ElevenLabs: refresh the account's usable voices BEFORE casting, so the
+        // auto-cast pool can't contain voices the plan is not allowed to speak.
+        if (settings.tts === 'elevenlabs' && premium) await fetchElevenVoices(premium).catch(() => {})
+        return buildVoiceMap(play.characters, settings.tts, settings.ttsRate, myCharId)
+      })()
+      await recognizerReady
+      const voiceMap = await voiceMapReady
       setVoiceAssignments(new Map(voiceMap))
       const narratorVoice = { engine: settings.tts, rate: settings.ttsRate }
       // Persist this section for one-click repeat rehearsal of the same scene.
@@ -657,8 +663,8 @@ function RunningView(props: {
   const { play, state, settings, engine, levelStore } = props
   const nameById = useMemo(() => new Map(play.characters.map((c) => [c.id, c.name])), [play])
   const [autoCue, setAutoCue] = useState(settings.autoAdvance)
-  const [showVoices, setShowVoices] = useState(false)
-  const [showTune, setShowTune] = useState(false)
+  // One-of-three panel state — a single field can't have two panels open.
+  const [panel, setPanel] = useState<'none' | 'voices' | 'tune'>('none')
   const [scoring, setScoring] = useState(true)
   const beat = state.beat
   const speaker = beat?.characterId ? nameById.get(beat.characterId) : undefined
@@ -805,25 +811,19 @@ function RunningView(props: {
             <span className="ctl-label">{autoCue ? 'Auto-cue' : 'Auto-cue off'}</span>
           </button>
           <button
-            className={`ctl ${showVoices ? 'active' : ''}`}
-            onClick={() => {
-              setShowVoices((v) => !v)
-              setShowTune(false)
-            }}
+            className={`ctl ${panel === 'voices' ? 'active' : ''}`}
+            onClick={() => setPanel((p) => (p === 'voices' ? 'none' : 'voices'))}
             title="Change the scene-partner voices"
-            aria-pressed={showVoices}
+            aria-pressed={panel === 'voices'}
           >
             <span className="ctl-icon">🎭</span>
             <span className="ctl-label">Voices</span>
           </button>
           <button
-            className={`ctl ${showTune ? 'active' : ''}`}
-            onClick={() => {
-              setShowTune((v) => !v)
-              setShowVoices(false)
-            }}
+            className={`ctl ${panel === 'tune' ? 'active' : ''}`}
+            onClick={() => setPanel((p) => (p === 'tune' ? 'none' : 'tune'))}
             title="Scoring and projection controls"
-            aria-pressed={showTune}
+            aria-pressed={panel === 'tune'}
           >
             <span className="ctl-icon">🎚</span>
             <span className="ctl-label">Tune</span>
@@ -835,18 +835,18 @@ function RunningView(props: {
         </div>
       </div>
 
-      {showTune && (
+      {panel === 'tune' && (
         <div
           className="voice-panel tune-panel"
           role="dialog"
           aria-label="Scoring and projection"
           onKeyDown={(e) => {
-            if (e.key === 'Escape') setShowTune(false)
+            if (e.key === 'Escape') setPanel('none')
           }}
         >
           <div className="voice-panel-head">
             <strong>Scoring &amp; projection</strong>
-            <button className="ghost" onClick={() => setShowTune(false)} autoFocus>
+            <button className="ghost" onClick={() => setPanel('none')} autoFocus>
               Done
             </button>
           </div>
@@ -904,7 +904,7 @@ function RunningView(props: {
         </div>
       )}
 
-      {showVoices && (
+      {panel === 'voices' && (
         <VoicePanel
           play={play}
           myCharId={props.myCharId}
@@ -912,7 +912,7 @@ function RunningView(props: {
           assignments={props.voiceAssignments}
           speakingCharId={state.phase === 'partner' ? beat?.characterId : undefined}
           onChange={props.onChangeVoice}
-          onClose={() => setShowVoices(false)}
+          onClose={() => setPanel('none')}
         />
       )}
     </section>

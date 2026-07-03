@@ -15,7 +15,7 @@ export type PremiumEngine = 'elevenlabs' | 'openai' | 'azure' | 'gemini'
 /** Perceived age of a character's voice. Honoured by the System voice
  *  (pitch/rate) and the cloud engines (delivery instruction); Kokoro has no
  *  age control. */
-export type AgeBand = 'child' | 'adolescent' | 'young-adult' | 'adult' | 'senior' | 'elderly'
+export type AgeBand = 'child' | 'adolescent' | 'young-adult' | 'senior' | 'elderly'
 
 export interface VoiceAssignment {
   engine: TTSEngine

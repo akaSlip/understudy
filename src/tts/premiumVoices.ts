@@ -70,6 +70,22 @@ export const PREMIUM_VOICES: Record<PremiumEngine, GenderedVoice[]> = {
   elevenlabs: ELEVENLABS,
 }
 
+// ElevenLabs is the one engine whose usable voices depend on the ACCOUNT
+// (fetched live). The fetched list lives here as an explicit override so the
+// static list above stays an immutable fallback — consumers go through
+// currentPremiumVoices() instead of relying on hidden array mutation.
+let elevenLive: GenderedVoice[] | null = null
+
+export function setElevenVoices(voices: GenderedVoice[]): void {
+  elevenLive = voices.length ? voices : null
+}
+
+/** The engine's voice list: the live account list when fetched, else static. */
+export function currentPremiumVoices(engine: PremiumEngine): GenderedVoice[] {
+  if (engine === 'elevenlabs' && elevenLive) return elevenLive
+  return PREMIUM_VOICES[engine]
+}
+
 /** Human-friendly engine label + where to get a key (shown in Settings). */
 export const ENGINE_INFO: Record<PremiumEngine, { label: string; keysUrl: string; needsRegion?: boolean }> = {
   elevenlabs: { label: 'ElevenLabs v3', keysUrl: 'https://elevenlabs.io/app/settings/api-keys' },

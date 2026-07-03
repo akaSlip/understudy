@@ -386,8 +386,23 @@ console.log('— voice change —')
 
 // --- audit regressions ------------------------------------------------------
 console.log('— audit regressions —')
-function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean; partnerFails?: boolean } = {}) {
-  const p: Play = {
+/** One test-engine factory for all the scenario blocks below: pass a custom
+ *  play / speaker behaviour / voiceMap / settings patch instead of hand-rolling
+ *  the constructor wiring per block. */
+function mkAuditEngine(
+  opts: {
+    autoAdvance?: boolean
+    partnerNeverEnds?: boolean
+    partnerFails?: boolean
+    play?: Play
+    voiceMap?: Map<string, import('../types').VoiceAssignment>
+    narratorVoice?: import('../types').VoiceAssignment
+    settingsPatch?: Partial<typeof settings>
+    /** Override the mock speaker's speakSegments entirely. */
+    speakSegments?: (segs: { text: string; direction?: string }[], voice: { engine: string }) => Promise<void>
+  } = {},
+) {
+  const p: Play = opts.play ?? {
     id: 'ar', title: 'ar', characters: play.characters,
     beats: [
       { id: 'L1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
@@ -399,11 +414,14 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
   let hh: { onFinal: (t: string) => void; onError: (e: Error) => void } | undefined
   const r = { ...recognizer, async start(h: { onFinal: (t: string) => void; onError: (e: Error) => void }) { hh = h } }
   const spoken: string[] = []
+  const seenSegments: Array<{ text: string; direction?: string }[]> = []
   // Reuse the module-level speaker mock; override only the behaviour under test.
   const sp = {
     ...speaker,
-    speakSegments(_segs: { text: string }[], voice: { engine: string }) {
+    speakSegments(segs: { text: string; direction?: string }[], voice: { engine: string }) {
       spoken.push(voice.engine)
+      seenSegments.push(segs)
+      if (opts.speakSegments) return opts.speakSegments(segs, voice)
       if (opts.partnerFails && voice.engine !== 'webspeech') return Promise.reject(new Error('cloud voice 401'))
       return opts.partnerNeverEnds ? new Promise<void>(() => {}) : Promise.resolve()
     },
@@ -415,12 +433,12 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
     speaker: sp as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     recognizer: r as any,
-    voiceMap: new Map([['B', { engine: 'elevenlabs' as const, rate: 1 }]]),
-    narratorVoice: { engine: 'webspeech' },
-    settings: { ...settings, autoAdvance: opts.autoAdvance ?? false },
+    voiceMap: opts.voiceMap ?? new Map([['B', { engine: 'elevenlabs' as const, rate: 1 }]]),
+    narratorVoice: opts.narratorVoice ?? { engine: 'webspeech' },
+    settings: { ...settings, autoAdvance: opts.autoAdvance ?? false, ...opts.settingsPatch },
     onUpdate: (s) => { st = s },
   })
-  return { eng, say: (x: string) => hh!.onFinal(x), err: (e: Error) => hh!.onError(e), state: () => st, spoken }
+  return { eng, say: (x: string) => hh!.onFinal(x), err: (e: Error) => hh!.onError(e), state: () => st, spoken, seenSegments }
 }
 
 {
@@ -478,67 +496,47 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
 {
   // Review fix: turning auto-cue off must NOT cancel the stage-direction
   // advance (it shares the advanceTimer field with the auto-cue advance).
-  const p: Play = {
-    id: 'sg', title: 'sg', characters: play.characters,
-    beats: [
-      { id: 'hd', kind: 'heading', text: 'ACT I' },
-      { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
-    ],
-    source: 'manual', createdAt: 0, updatedAt: 0,
-  }
-  let st: RehearsalState = {} as RehearsalState
-  const eng = new RehearsalEngine({
-    play: p, myCharacterId: 'A',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    speaker: speaker as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognizer: recognizer as any,
-    voiceMap: new Map(), narratorVoice: { engine: 'webspeech' },
-    settings: { ...settings, autoAdvance: true },
-    onUpdate: (s) => { st = s },
+  const { eng, state } = mkAuditEngine({
+    autoAdvance: true,
+    play: {
+      id: 'sg', title: 'sg', characters: play.characters,
+      beats: [
+        { id: 'hd', kind: 'heading', text: 'ACT I' },
+        { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
+      ],
+      source: 'manual', createdAt: 0, updatedAt: 0,
+    },
   })
   await eng.start(); await tick()
-  check('sits on the stage beat first', st.phase === 'stage' && st.beat?.id === 'hd', st.phase)
+  check('sits on the stage beat first', state().phase === 'stage' && state().beat?.id === 'hd', state().phase)
   eng.setAutoCue(false) // user toggles auto-cue during the 1100ms stage pause
   await new Promise((r) => setTimeout(r, 1300))
-  check('stage still advances after auto-cue was turned off', st.beat?.id === 'm1', { phase: st.phase, beat: st.beat?.id })
+  check('stage still advances after auto-cue was turned off', state().beat?.id === 'm1', { phase: state().phase, beat: state().beat?.id })
   eng.dispose()
 }
 
 {
   // Review fix: failed stage NARRATION gets the same treatment as a failed
   // partner line — error surfaced, system-voice fallback, flow continues.
-  const p: Play = {
-    id: 'nr', title: 'nr', characters: play.characters,
-    beats: [
-      { id: 'st1', kind: 'action', text: 'Enter the GHOST.' },
-      { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
-    ],
-    source: 'manual', createdAt: 0, updatedAt: 0,
-  }
-  const spoken: string[] = []
-  const sp = {
-    ...speaker,
-    speakSegments(_s: { text: string }[], voice: { engine: string }) {
-      spoken.push(voice.engine)
-      return voice.engine === 'webspeech' ? Promise.resolve() : Promise.reject(new Error('narrator 401'))
+  const { eng, state, spoken } = mkAuditEngine({
+    autoAdvance: true,
+    settingsPatch: { speakStageDirections: true },
+    narratorVoice: { engine: 'elevenlabs' },
+    speakSegments: (_s, voice) =>
+      voice.engine === 'webspeech' ? Promise.resolve() : Promise.reject(new Error('narrator 401')),
+    play: {
+      id: 'nr', title: 'nr', characters: play.characters,
+      beats: [
+        { id: 'st1', kind: 'action', text: 'Enter the GHOST.' },
+        { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
+      ],
+      source: 'manual', createdAt: 0, updatedAt: 0,
     },
-  }
-  let st: RehearsalState = {} as RehearsalState
-  const eng = new RehearsalEngine({
-    play: p, myCharacterId: 'A',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    speaker: sp as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognizer: recognizer as any,
-    voiceMap: new Map(), narratorVoice: { engine: 'elevenlabs' },
-    settings: { ...settings, autoAdvance: true, speakStageDirections: true },
-    onUpdate: (s) => { st = s },
   })
   await eng.start(); await new Promise((r) => setTimeout(r, 50))
   check('narration failure falls back to the system voice', spoken.includes('webspeech'), spoken)
-  check('narration failure surfaces an error', typeof st.error === 'string', st.error)
-  check('flow continues past the narrated stage beat', st.beat?.id === 'm1', st.beat?.id)
+  check('narration failure surfaces an error', typeof state().error === 'string', state().error)
+  check('flow continues past the narrated stage beat', state().beat?.id === 'm1', state().beat?.id)
   eng.dispose()
 }
 
@@ -563,44 +561,28 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
 }
 
 {
-  // Character personality: colours every span the character speaks; an inline
-  // {vocal} cue overrides it for its own words.
-  const p: Play = {
-    id: 'pers', title: 'pers', characters: play.characters,
-    beats: [
-      { id: 'q1', kind: 'dialogue', characterId: 'B', text: 'Plain span. Angry span.', segments: [
-        { text: 'Plain span.' },
-        { text: 'Angry span.', direction: 'furious' },
-      ] },
-      { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
-    ],
-    source: 'manual', createdAt: 0, updatedAt: 0,
-  }
-  const seen: Array<{ text: string; direction?: string }[]> = []
-  const sp = {
-    ...speaker,
-    speakSegments(segs: { text: string; direction?: string }[]) {
-      seen.push(segs)
-      return Promise.resolve()
-    },
-  }
-  let st: RehearsalState = {} as RehearsalState
-  const eng = new RehearsalEngine({
-    play: p, myCharacterId: 'A',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    speaker: sp as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognizer: recognizer as any,
+  // Standing delivery (age/personality) now composes inside the SPEAKER (so
+  // playback and pre-generation share cache keys — unit-tested in smoke.ts).
+  // The engine must hand segments through untouched.
+  const { eng, state, seenSegments } = mkAuditEngine({
+    autoAdvance: true,
     voiceMap: new Map([['B', { engine: 'webspeech' as const, rate: 1, direction: 'pompous and clipped', age: 'elderly' as const }]]),
-    narratorVoice: { engine: 'webspeech' },
-    settings: { ...settings, autoAdvance: true },
-    onUpdate: (s) => { st = s },
+    play: {
+      id: 'pers', title: 'pers', characters: play.characters,
+      beats: [
+        { id: 'q1', kind: 'dialogue', characterId: 'B', text: 'Plain span. Angry span.', segments: [
+          { text: 'Plain span.' },
+          { text: 'Angry span.', direction: 'furious' },
+        ] },
+        { id: 'm1', kind: 'dialogue', characterId: 'A', text: 'alpha beta gamma' },
+      ],
+      source: 'manual', createdAt: 0, updatedAt: 0,
+    },
   })
   await eng.start(); await new Promise((r) => setTimeout(r, 50))
-  const spoken = seen[0] ?? []
-  check('age + personality fill spans with no inline cue', spoken[0]?.direction === 'an elderly, aged voice, pompous and clipped', spoken)
-  check('inline vocal cue overrides the standing delivery for its span', spoken[1]?.direction === 'furious', spoken)
-  check('flow reaches the actor line as usual', st.beat?.id === 'm1', st.beat?.id)
+  const spokenSegs = seenSegments[0] ?? []
+  check('engine passes segments through raw (composition is the Speaker\'s job)', spokenSegs[0]?.direction === undefined && spokenSegs[1]?.direction === 'furious', spokenSegs)
+  check('flow reaches the actor line as usual', state().beat?.id === 'm1', state().beat?.id)
   eng.dispose()
 }
 
