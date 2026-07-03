@@ -8,7 +8,7 @@ import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
 import { cleanEditionArtifacts, isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
-import { azureStyle, buildAzureSSML, directionsInstruction, geminiPrompt, isPremiumEngine, pcmToWav } from '../tts/premium'
+import { azureStyle, buildAzureSSML, directionsInstruction, elevenLabsText, geminiPrompt, isPremiumEngine, pcmToWav } from '../tts/premium'
 import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
 import { SEED_PLAYS, buildSeedPlay } from '../lib/seed'
 
@@ -267,6 +267,8 @@ const wav = pcmToWav(btoa('\x01\x02\x03\x04'), 24000)
 check('pcmToWav builds a 44-byte-header WAV blob', wav.type === 'audio/wav' && wav.size === 44 + 4, wav.size)
 const openaiVoices = await listVoicesForEngine('openai')
 check('listVoicesForEngine returns the cloud voice pool', openaiVoices.length > 0 && !!openaiVoices[0].id)
+check('elevenlabs v3 gets inline audio tags', elevenLabsText('eleven_v3', segs).startsWith('[bewildered]'))
+check('elevenlabs non-v3 models get PLAIN text (no spoken brackets)', !elevenLabsText('eleven_multilingual_v2', segs).includes('['), elevenLabsText('eleven_multilingual_v2', segs))
 
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILURE(S)'}`)
 if (failures > 0 && typeof process !== 'undefined') process.exitCode = 1

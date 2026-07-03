@@ -433,14 +433,24 @@ function PremiumVoiceConfig(props: {
         Each line is generated once, then cached and replays offline.
       </p>
       {engine === 'elevenlabs' && (
-        <label className="field">
-          <span>Relay URL (optional)</span>
-          <input
-            placeholder="Only if direct calls are CORS-blocked"
-            value={cfg.proxyUrl ?? ''}
-            onChange={(e) => onPatch({ proxyUrl: e.target.value.trim() || undefined })}
-          />
-        </label>
+        <>
+          <label className="field">
+            <span>Model (optional)</span>
+            <input
+              placeholder="eleven_v3 — if it errors on your plan, try eleven_multilingual_v2"
+              value={cfg.model ?? ''}
+              onChange={(e) => onPatch({ model: e.target.value.trim() || undefined })}
+            />
+          </label>
+          <label className="field">
+            <span>Relay URL (optional)</span>
+            <input
+              placeholder="Only if direct calls are CORS-blocked"
+              value={cfg.proxyUrl ?? ''}
+              onChange={(e) => onPatch({ proxyUrl: e.target.value.trim() || undefined })}
+            />
+          </label>
+        </>
       )}
     </div>
   )

@@ -159,9 +159,17 @@ export async function generatePremium(
   }
 }
 
+/** v3 takes inline [audio tags] for acting direction; older models (e.g.
+ *  eleven_multilingual_v2) would read the brackets ALOUD, so they get plain
+ *  words. Exported for tests. */
+export function elevenLabsText(model: string, segments: LineSegment[]): string {
+  return model.startsWith('eleven_v3') ? segmentsToTaggedText(segments) : plainText(segments)
+}
+
 async function elevenLabs(segments: LineSegment[], voiceId: string | undefined, cfg: PremiumConfig): Promise<Blob> {
   const id = voiceId || '21m00Tcm4TlvDq8ikWAM'
-  const body = JSON.stringify({ text: segmentsToTaggedText(segments), model_id: cfg.model || 'eleven_v3' })
+  const model = cfg.model || 'eleven_v3'
+  const body = JSON.stringify({ text: elevenLabsText(model, segments), model_id: model })
   const direct = `https://api.elevenlabs.io/v1/text-to-speech/${id}`
   const url = cfg.proxyUrl ? `${cfg.proxyUrl.replace(/\/$/, '')}/tts/${id}` : direct
   const res = await fetch(url, {
