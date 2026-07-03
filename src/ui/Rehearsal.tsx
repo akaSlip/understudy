@@ -20,7 +20,7 @@ import type { AppSettings } from '../store/settings'
 import { Speaker } from '../tts/speaker'
 import { warmupKokoro } from '../tts/kokoro'
 import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
-import { isPremiumEngine, type PremiumConfig } from '../tts/premium'
+import { fetchElevenVoices, isPremiumEngine, type PremiumConfig } from '../tts/premium'
 import type { TTSVoice } from '../tts/webspeech'
 import { RehearsalEngine, type RehearsalState } from '../rehearsal/engine'
 import { CompatBanner } from './CompatBanner'
@@ -139,6 +139,9 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         : null
       const speaker = new Speaker({ rate: settings.ttsRate, premium })
       if (settings.tts === 'kokoro') void warmupKokoro().catch(() => {}) // pre-load so line 1 doesn't stall
+      // ElevenLabs: refresh the account's usable voices before casting, so the
+      // auto-cast pool can't contain voices the plan is not allowed to speak.
+      if (settings.tts === 'elevenlabs' && premium) await fetchElevenVoices(premium).catch(() => {})
       const voiceMap = await buildVoiceMap(play.characters, settings.tts, settings.ttsRate, myCharId)
       setVoiceAssignments(new Map(voiceMap))
       const narratorVoice = { engine: settings.tts, rate: settings.ttsRate }

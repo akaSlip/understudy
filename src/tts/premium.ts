@@ -13,6 +13,8 @@
 
 import type { LineSegment, PremiumEngine, VoiceAssignment } from '../types'
 import { segmentsToTaggedText } from '../lib/directions'
+import { guessGender } from '../lib/gender'
+import { PREMIUM_VOICES, type GenderedVoice } from './premiumVoices'
 
 export interface PremiumConfig {
   engine: PremiumEngine
@@ -166,8 +168,53 @@ export function elevenLabsText(model: string, segments: LineSegment[]): string {
   return model.startsWith('eleven_v3') ? segmentsToTaggedText(segments) : plainText(segments)
 }
 
+// --- ElevenLabs account voice list ------------------------------------------
+// Free-plan API keys can only speak the CURRENT premade voices and the
+// account's own ("My Voices") — anything else 402s ("library voice"). Voice ids
+// also shift over time, so the only reliable source is the account's live
+// list. On success the shared registry (PREMIUM_VOICES.elevenlabs) is replaced
+// in place, so auto-casting and every voice picker use the real list.
+
+let elevenFetchKey: string | null = null
+let elevenFetch: Promise<GenderedVoice[]> | null = null
+
+/** Map an API voice entry to our shape; gender from labels, else the name. */
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+export function mapElevenVoice(v: any): GenderedVoice | null {
+  if (!v?.voice_id || !v?.name) return null
+  const g = String(v.labels?.gender ?? '').toLowerCase()
+  const gender = g.startsWith('f') ? ('f' as const) : g.startsWith('m') ? ('m' as const) : guessGender(v.name)
+  const desc = [v.labels?.gender, v.labels?.accent].filter(Boolean).join(', ')
+  return { id: v.voice_id, label: desc ? `${v.name} — ${desc}` : v.name, gender }
+}
+
+export function fetchElevenVoices(cfg: { apiKey?: string; proxyUrl?: string }): Promise<GenderedVoice[]> {
+  const key = cfg.apiKey ?? ''
+  if (!key && !cfg.proxyUrl) return Promise.resolve(PREMIUM_VOICES.elevenlabs)
+  if (elevenFetch && elevenFetchKey === key) return elevenFetch
+  elevenFetchKey = key
+  elevenFetch = (async () => {
+    const url = cfg.proxyUrl ? `${cfg.proxyUrl.replace(/\/$/, '')}/voices` : 'https://api.elevenlabs.io/v1/voices'
+    const res = await fetch(url, { headers: key ? { 'xi-api-key': key } : {} })
+    if (!res.ok) throw new Error(`ElevenLabs error ${res.status}: ${await res.text().catch(() => '')}`)
+    const json = await res.json()
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+    const voices = ((json?.voices ?? []) as any[]).map(mapElevenVoice).filter((v): v is GenderedVoice => v !== null)
+    if (voices.length) PREMIUM_VOICES.elevenlabs.splice(0, PREMIUM_VOICES.elevenlabs.length, ...voices)
+    return voices
+  })()
+  elevenFetch.catch(() => {
+    // Don't cache a failure — a corrected key should retry.
+    elevenFetch = null
+    elevenFetchKey = null
+  })
+  return elevenFetch
+}
+
 async function elevenLabs(segments: LineSegment[], voiceId: string | undefined, cfg: PremiumConfig): Promise<Blob> {
-  const id = voiceId || '21m00Tcm4TlvDq8ikWAM'
+  // Default to the first voice of the (possibly account-fetched) pool — a
+  // current premade voice that free-plan API keys are allowed to use.
+  const id = voiceId || PREMIUM_VOICES.elevenlabs[0]?.id || 'EXAVITQu4vr4xnSDxMaL'
   const model = cfg.model || 'eleven_v3'
   const body = JSON.stringify({ text: elevenLabsText(model, segments), model_id: model })
   const direct = `https://api.elevenlabs.io/v1/text-to-speech/${id}`

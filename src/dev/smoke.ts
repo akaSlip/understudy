@@ -8,7 +8,8 @@ import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
 import { cleanEditionArtifacts, isImage, isPdf, needsExtraction, reconstructLines } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
-import { azureStyle, buildAzureSSML, directionsInstruction, elevenLabsText, geminiPrompt, isPremiumEngine, pcmToWav } from '../tts/premium'
+import { azureStyle, buildAzureSSML, directionsInstruction, elevenLabsText, fetchElevenVoices, geminiPrompt, isPremiumEngine, mapElevenVoice, pcmToWav } from '../tts/premium'
+import { PREMIUM_VOICES } from '../tts/premiumVoices'
 import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
 import { SEED_PLAYS, buildSeedPlay } from '../lib/seed'
 
@@ -269,6 +270,34 @@ const openaiVoices = await listVoicesForEngine('openai')
 check('listVoicesForEngine returns the cloud voice pool', openaiVoices.length > 0 && !!openaiVoices[0].id)
 check('elevenlabs v3 gets inline audio tags', elevenLabsText('eleven_v3', segs).startsWith('[bewildered]'))
 check('elevenlabs non-v3 models get PLAIN text (no spoken brackets)', !elevenLabsText('eleven_multilingual_v2', segs).includes('['), elevenLabsText('eleven_multilingual_v2', segs))
+
+// ElevenLabs account voice fetch: mapping + registry replacement (mocked fetch).
+check('mapElevenVoice maps labels.gender', mapElevenVoice({ voice_id: 'v1', name: 'Zed', labels: { gender: 'female', accent: 'British' } })?.gender === 'f')
+check('mapElevenVoice falls back to name gender', mapElevenVoice({ voice_id: 'v2', name: 'Daniel', labels: {} })?.gender === 'm')
+check('mapElevenVoice rejects malformed entries', mapElevenVoice({ name: 'NoId' }) === null)
+{
+  const g = globalThis as { fetch?: unknown }
+  const realFetch = g.fetch
+  g.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      voices: [
+        { voice_id: 'acc1', name: 'Hope', labels: { gender: 'female' } },
+        { voice_id: 'acc2', name: 'Marcus', labels: { gender: 'male' } },
+      ],
+    }),
+  })
+  const fetched = await fetchElevenVoices({ apiKey: 'k-test' })
+  g.fetch = realFetch
+  check('fetchElevenVoices returns the account voices', fetched.length === 2 && fetched[0].id === 'acc1')
+  check('registry replaced with account voices (casting pool follows)', PREMIUM_VOICES.elevenlabs.length === 2 && PREMIUM_VOICES.elevenlabs[1].label === 'Marcus — male', PREMIUM_VOICES.elevenlabs.map((v) => v.id))
+  const casting = await buildVoiceMap(
+    [{ id: 'c1', name: 'Lady Bracknell' }, { id: 'c2', name: 'Jack' }] as unknown as import('../types').Character[],
+    'elevenlabs',
+    1,
+  )
+  check('auto-cast uses the fetched account voices', [...casting.values()].every((v) => v.voiceId === 'acc1' || v.voiceId === 'acc2'), [...casting.values()].map((v) => v.voiceId))
+}
 
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILURE(S)'}`)
 if (failures > 0 && typeof process !== 'undefined') process.exitCode = 1
