@@ -5,6 +5,7 @@ import { createRecognizer } from '../audio/recognizerFactory'
 import type { Recognizer } from '../audio/recognizer'
 import { compatibilityReport, detectCapabilities, hasBlockingIssue, type CompatIssue } from '../lib/capabilities'
 import { getPlay } from '../store/playsRepo'
+import { getFlag, setFlag } from '../store/flags'
 import { loadSection, saveSection } from '../store/rangeMemory'
 import {
   DEFAULT_SECTION,
@@ -35,6 +36,8 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
   const [starting, setStarting] = useState(false)
   const [loadMsg, setLoadMsg] = useState('')
   const [state, setState] = useState<RehearsalState | null>(null)
+  const [showSoundCheck, setShowSoundCheck] = useState(false)
+  const soundCheckDoneRef = useRef<boolean | null>(null)
   // Mic level updates ~15×/s while listening — kept OUT of React state so only
   // the MicMeter (which subscribes) re-renders per tick, not this whole tree.
   const levelStore = useRef(createLevelStore()).current
@@ -99,15 +102,35 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
     recognizerRef.current = null
   }
 
+  /** First-time users get a sound check before the first rehearsal; the same
+   *  recognizer (and its loaded model) is then reused by begin(). */
+  async function onStartPressed() {
+    if (soundCheckDoneRef.current === null) soundCheckDoneRef.current = await getFlag('soundcheck')
+    if (!soundCheckDoneRef.current) setShowSoundCheck(true)
+    else void begin()
+  }
+
+  function finishSoundCheck(startNow: boolean) {
+    soundCheckDoneRef.current = true
+    void setFlag('soundcheck')
+    setShowSoundCheck(false)
+    if (startNow) void begin()
+  }
+
   async function begin() {
     if (!play || started || startingRef.current) return
     startingRef.current = true
     setStarting(true)
-    teardown() // clear any stragglers from a prior attempt
+    engineRef.current?.dispose() // clear any straggler from a prior attempt
+    engineRef.current = null
     try {
       setLoadMsg('Preparing speech recognition…')
-      const recognizer = createRecognizer(settings)
-      recognizerRef.current = recognizer
+      // Reuse a recognizer the sound check already loaded/warmed, if present.
+      let recognizer = recognizerRef.current
+      if (!recognizer) {
+        recognizer = createRecognizer(settings)
+        recognizerRef.current = recognizer
+      }
       await recognizer.init((p) =>
         setLoadMsg(`Loading speech model… ${p.progress != null ? Math.round(p.progress * 100) + '%' : ''}`),
       )
@@ -173,6 +196,20 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
     )
   }
 
+  if (showSoundCheck) {
+    return (
+      <SoundCheckView
+        levelStore={levelStore}
+        tts={settings.tts}
+        ensureRecognizer={() => {
+          if (!recognizerRef.current) recognizerRef.current = createRecognizer(settings)
+          return recognizerRef.current
+        }}
+        onDone={finishSoundCheck}
+      />
+    )
+  }
+
   if (!started) {
     return (
       <SetupView
@@ -184,7 +221,8 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         spec={effSpec}
         setSpec={setSpec}
         summary={summary}
-        onStart={() => void begin()}
+        onStart={() => void onStartPressed()}
+        onSoundCheck={() => setShowSoundCheck(true)}
         onBack={() => go({ view: 'library' })}
         recognizer={settings.recognizer}
         whisperModel={settings.whisperModel}
@@ -248,6 +286,7 @@ function SetupView(props: {
   setSpec: (s: SectionSpec) => void
   summary: SectionSummary
   onStart: () => void
+  onSoundCheck: () => void
   onBack: () => void
   recognizer: string
   whisperModel: string
@@ -295,9 +334,114 @@ function SetupView(props: {
           Speech recognition: <strong>{props.recognizer === 'whisper' ? `Whisper (${props.whisperModel}, on-device)` : 'Web Speech'}</strong>
           {' · '}Voices: <strong>{props.tts}</strong>. Change these in Settings.
         </p>
-        <button className="primary big" onClick={props.onStart} disabled={!canStart}>
-          {startLabel}
-        </button>
+        <div className="start-row">
+          <button className="ghost" onClick={props.onSoundCheck} title="Test your microphone and voice detection">
+            🎙 Sound check
+          </button>
+          <button className="primary big" onClick={props.onStart} disabled={!canStart}>
+            {startLabel}
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/** Pre-rehearsal sound check: exercises the REAL pipeline (mic → level meter →
+ *  recogniser), which both reassures the user and pre-loads/warms the speech
+ *  model so the first line of the rehearsal is fast. Shown automatically the
+ *  first time ever; re-runnable from the setup screen. */
+function SoundCheckView(props: {
+  levelStore: LevelStore
+  tts: TTSEngine
+  ensureRecognizer: () => Recognizer
+  onDone: (startNow: boolean) => void
+}) {
+  const { levelStore, ensureRecognizer, onDone } = props
+  const [phase, setPhase] = useState<'loading' | 'listening' | 'error'>('loading')
+  const [msg, setMsg] = useState('')
+  const [heard, setHeard] = useState<string[]>([])
+
+  useEffect(() => {
+    let alive = true
+    const rec = ensureRecognizer()
+    ;(async () => {
+      try {
+        await rec.init((p) => {
+          if (alive) setMsg(`Loading the speech model… ${p.progress != null ? Math.round(p.progress * 100) + '%' : ''}`)
+        })
+        if (!alive) return
+        setMsg('')
+        await rec.start({
+          onFinal: (t) => {
+            if (alive && t.trim()) setHeard((h) => [...h, t.trim()])
+          },
+          onLevel: (l) => levelStore.set(l),
+          onError: (e) => {
+            if (alive) setMsg(e.message)
+          },
+        })
+        rec.setActive(true)
+        if (alive) setPhase('listening')
+      } catch (e) {
+        if (alive) {
+          setPhase('error')
+          setMsg(e instanceof Error ? e.message : String(e))
+        }
+      }
+    })()
+    return () => {
+      alive = false
+      // Release the mic but KEEP the recogniser instance — its loaded, warmed
+      // model is reused when the rehearsal starts.
+      void rec.stop()
+      levelStore.set(0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <section className="soundcheck">
+      <div className="section-head">
+        <h1>Sound check</h1>
+      </div>
+      {phase === 'loading' && (
+        <div className="loading-overlay inline">
+          <div className="spinner" />
+          <p>{msg || 'Preparing speech recognition…'}</p>
+          <p className="muted small">First time only — the model is saved for offline use afterwards.</p>
+        </div>
+      )}
+      {phase === 'error' && <div className="banner error">{msg}</div>}
+      {phase === 'listening' && (
+        <>
+          <p className="sc-prompt">
+            Say a line — any line — and watch the meter move. <MicMeter store={levelStore} />
+          </p>
+          {heard.length === 0 ? (
+            <p className="muted">Listening…</p>
+          ) : (
+            <div className="sc-heard">
+              <p className="ok">✓ Heard you loud and clear:</p>
+              <p className="heard muted">“{heard[heard.length - 1]}”</p>
+            </div>
+          )}
+        </>
+      )}
+      <div className="banner warn sc-note">
+        <strong>Heads-up for your first run-through:</strong> the scene-partner voices are generated as each line is
+        first reached{props.tts === 'kokoro' ? ' (and the voice model downloads once)' : ''}, so you may notice short
+        pauses before some lines. Every generated line is saved — your second time through the same play is instant.
+      </div>
+      <div className="setup-foot">
+        <div className="start-row">
+          <button className="ghost" onClick={() => onDone(false)}>
+            Back to setup
+          </button>
+          <button className="primary big" onClick={() => onDone(true)}>
+            {heard.length > 0 ? 'Sounds good — start rehearsal' : 'Start rehearsal anyway'}
+          </button>
+        </div>
       </div>
     </section>
   )
