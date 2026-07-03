@@ -12,6 +12,11 @@ export type TTSEngine = 'webspeech' | 'kokoro' | 'elevenlabs' | 'openai' | 'azur
 /** The cloud engines that need an API key (a subset of TTSEngine). */
 export type PremiumEngine = 'elevenlabs' | 'openai' | 'azure' | 'gemini'
 
+/** Perceived age of a character's voice. Honoured by the System voice
+ *  (pitch/rate) and the cloud engines (delivery instruction); Kokoro has no
+ *  age control. */
+export type AgeBand = 'child' | 'adolescent' | 'young-adult' | 'adult' | 'senior' | 'elderly'
+
 export interface VoiceAssignment {
   engine: TTSEngine
   /** Engine-specific voice identifier (e.g. a SpeechSynthesis voice name, a
@@ -21,9 +26,11 @@ export interface VoiceAssignment {
   rate?: number
   /** 0–2 pitch (only honoured by the Web Speech engine). */
   pitch?: number
-  /** Natural-language delivery note for instruction-steerable premium engines
-   *  (Hume / OpenAI). Ignored by free engines. */
+  /** Standing personality for instruction-steerable cloud engines; colours
+   *  every line unless an inline {vocal} cue overrides a span. */
   direction?: string
+  /** Perceived age of the voice. */
+  age?: AgeBand
 }
 
 export interface Character {

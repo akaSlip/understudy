@@ -11,7 +11,7 @@ import type { Recognizer } from '../audio/recognizer'
 import type { AppSettings } from '../store/settings'
 import type { Speaker } from '../tts/speaker'
 import { scoreLine } from '../lib/scorer'
-import { beatSegments } from '../lib/directions'
+import { agePhrase, beatSegments } from '../lib/directions'
 
 export type Phase = 'idle' | 'partner' | 'stage' | 'listening' | 'scored' | 'stuck' | 'paused' | 'done'
 
@@ -390,10 +390,11 @@ export class RehearsalEngine {
    *  transition. */
   private async performLine(segments: LineSegment[], voice: VoiceAssignment): Promise<void> {
     const isAbort = (e: unknown) => (e as { name?: string })?.name === 'AbortError'
-    // A character-level personality (cast panel) colours EVERY span the
-    // character speaks; an inline {vocal} cue overrides it for its own words.
-    if (voice.direction) {
-      segments = segments.map((s) => (s.direction ? s : { ...s, direction: voice.direction }))
+    // Character-level age + personality (cast panel) colour EVERY span the
+    // character speaks; an inline {vocal} cue overrides them for its own words.
+    const standing = [agePhrase(voice.age), voice.direction].filter(Boolean).join(', ')
+    if (standing) {
+      segments = segments.map((s) => (s.direction ? s : { ...s, direction: standing }))
     }
     const onStart = () => {
       this.partnerSpeaking = true // audio is actually playing now

@@ -4,14 +4,16 @@
 //     --outfile=/tmp/understudy-smoke.mjs && node /tmp/understudy-smoke.mjs
 
 import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
-import { directionToProsody, segmentsToTaggedText } from '../lib/directions'
+import { AGE_BANDS, agePhrase, ageProsody, directionToProsody, segmentsToTaggedText } from '../lib/directions'
 import { guessGender } from '../lib/gender'
 import { cleanEditionArtifacts, isImage, isPdf, needsExtraction, reconstructLines, shapeOcrScript } from '../lib/ingest'
 import { scoreLine } from '../lib/scorer'
-import { azureStyle, buildAzureSSML, directionsInstruction, elevenLabsText, fetchElevenVoices, geminiPrompt, isPremiumEngine, mapElevenVoice, pcmToWav } from '../tts/premium'
+import { accentRank, azureStyle, buildAzureSSML, directionsInstruction, elevenLabsText, fetchElevenVoices, geminiPrompt, isPremiumEngine, mapElevenVoice, pcmToWav } from '../tts/premium'
 import { PREMIUM_VOICES } from '../tts/premiumVoices'
 import { buildVoiceMap, listVoicesForEngine } from '../tts/voices'
 import { SEED_PLAYS, buildSeedPlay } from '../lib/seed'
+import { KOKORO_VOICES } from '../tts/kokoro'
+import { localeRank, sortVoicesByLocale } from '../tts/webspeech'
 
 let failures = 0
 function check(name: string, cond: unknown, extra?: unknown) {
@@ -298,6 +300,37 @@ await (async () => {
   check('Algernon cast as a male voice', g(map.get('b')?.voiceId) === 'm', map.get('b')?.voiceId)
   check('Cecily cast as a female voice', g(map.get('d')?.voiceId) === 'f', map.get('d')?.voiceId)
 })()
+
+console.log('\n— casting review: gender, locale order, age —')
+// Classic unnamed stage roles must gender correctly (they were getting female voices).
+check('role "Murderer" → m', guessGender('MURDERER') === 'm')
+check('role "First Murderer" → m', guessGender('FIRST MURDERER') === 'm')
+check('role "Lords" → m', guessGender('LORDS') === 'm')
+check('role "Witches" → f', guessGender('THREE WITCHES') === 'f')
+await (async () => {
+  const chars = [{ id: 'u1', name: 'Xyzzq Blort' }] as unknown as import('../types').Character[]
+  const map = await buildVoiceMap(chars, 'kokoro', 1)
+  const vid = map.get('u1')?.voiceId ?? ''
+  check('unknown-gender part falls back to a MALE voice', vid[1] === 'm', vid)
+  const ukFirst = await buildVoiceMap(
+    [{ id: 'a', name: 'Gwendolen' }, { id: 'b', name: 'Jack' }] as unknown as import('../types').Character[],
+    'kokoro',
+    1,
+  )
+  check('auto-cast defaults to UK voices', [...ukFirst.values()].every((v) => v.voiceId?.startsWith('b')), [...ukFirst.values()].map((v) => v.voiceId))
+})()
+check('kokoro list leads with UK voices', KOKORO_VOICES[0].id.startsWith('b') && KOKORO_VOICES.filter((v) => v.id.startsWith('b')).length === 8, KOKORO_VOICES[0])
+check('locale rank: UK < AU < US < other-en < rest', localeRank('en-GB') < localeRank('en-AU') && localeRank('en-AU') < localeRank('en-US') && localeRank('en-US') < localeRank('en-IN') && localeRank('en-IN') < localeRank('fr-FR'))
+const sorted = sortVoicesByLocale([{ lang: 'en-US' }, { lang: 'fr-FR' }, { lang: 'en-AU' }, { lang: 'en-GB' }])
+check('web speech voices sort UK→AU→US→rest', JSON.stringify(sorted.map((v) => v.lang)) === JSON.stringify(['en-GB', 'en-AU', 'en-US', 'fr-FR']), sorted)
+check('elevenlabs accent rank UK→AU→US', accentRank('George — british') < accentRank('Charlie — australian') && accentRank('Charlie — australian') < accentRank('Sarah — american'))
+
+// Age bands: prosody for the System voice, phrase for cloud engines.
+check('child raises pitch', ageProsody('child').pitch > 1.3)
+check('elderly lowers pitch and slows', ageProsody('elderly').pitch < 0.9 && ageProsody('elderly').rate < 0.9)
+check('adult is neutral', ageProsody('adult').pitch === 1 && ageProsody('adult').rate === 1 && agePhrase('adult') === undefined)
+check('elderly phrase for cloud engines', agePhrase('elderly') === 'an elderly, aged voice')
+check('all six bands offered', AGE_BANDS.length === 6 && AGE_BANDS[0].value === 'child' && AGE_BANDS[5].value === 'elderly')
 
 console.log('\n— cloud voice engines —')
 check(

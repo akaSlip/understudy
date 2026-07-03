@@ -6,8 +6,21 @@
 
 import type { TTSVoice } from './webspeech'
 
-// Curated subset of Kokoro v1.0 voices with gender hints for casting.
+// Kokoro v1.0 voices with gender hints for casting. UK voices FIRST — they are
+// the auto-cast default and lead the pickers (the user's plays are UK-English);
+// Kokoro ships no AU voices, so US follows directly. Order matters: the
+// auto-caster consumes this list top-down per gender.
 export const KOKORO_VOICES: (TTSVoice & { gender: 'f' | 'm' })[] = [
+  // UK
+  { id: 'bf_emma', label: 'Emma — female (UK)', gender: 'f' },
+  { id: 'bf_alice', label: 'Alice — female (UK)', gender: 'f' },
+  { id: 'bf_isabella', label: 'Isabella — female (UK)', gender: 'f' },
+  { id: 'bf_lily', label: 'Lily — female (UK)', gender: 'f' },
+  { id: 'bm_george', label: 'George — male (UK)', gender: 'm' },
+  { id: 'bm_lewis', label: 'Lewis — male (UK)', gender: 'm' },
+  { id: 'bm_daniel', label: 'Daniel — male (UK)', gender: 'm' },
+  { id: 'bm_fable', label: 'Fable — male (UK)', gender: 'm' },
+  // US
   { id: 'af_heart', label: 'Heart — warm female (US)', gender: 'f' },
   { id: 'af_bella', label: 'Bella — bright female (US)', gender: 'f' },
   { id: 'af_nicole', label: 'Nicole — soft female (US)', gender: 'f' },
@@ -16,10 +29,6 @@ export const KOKORO_VOICES: (TTSVoice & { gender: 'f' | 'm' })[] = [
   { id: 'am_fenrir', label: 'Fenrir — deep male (US)', gender: 'm' },
   { id: 'am_puck', label: 'Puck — lively male (US)', gender: 'm' },
   { id: 'am_adam', label: 'Adam — plain male (US)', gender: 'm' },
-  { id: 'bf_emma', label: 'Emma — female (UK)', gender: 'f' },
-  { id: 'bf_alice', label: 'Alice — female (UK)', gender: 'f' },
-  { id: 'bm_george', label: 'George — male (UK)', gender: 'm' },
-  { id: 'bm_lewis', label: 'Lewis — male (UK)', gender: 'm' },
 ]
 
 interface WorkerResult {

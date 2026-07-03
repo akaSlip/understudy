@@ -49,17 +49,18 @@ const AZURE: GenderedVoice[] = [
 // "library" voices, which 402 on free). This static list is only the fallback:
 // fetchElevenVoices() replaces it with the account's real voice list once a
 // key is configured.
+// Order: UK first (the auto-cast default), then AU, then US.
 const ELEVENLABS: GenderedVoice[] = [
-  { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Sarah — female (US)', gender: 'f' },
-  { id: '9BWtsMINqrJLrRacOk9x', label: 'Aria — female (US)', gender: 'f' },
   { id: 'Xb7hH8MSUJpSbSDYk0k2', label: 'Alice — female (UK)', gender: 'f' },
-  { id: 'XrExE9yKIg1WjnnlVkGX', label: 'Matilda — female (US)', gender: 'f' },
   { id: 'pFZP5JQG7iQjIQuC4Bku', label: 'Lily — female (UK)', gender: 'f' },
   { id: 'JBFqnCBsd6RMkjVDRZzb', label: 'George — male (UK)', gender: 'm' },
   { id: 'onwK4e9ZLuTAKqWW03F9', label: 'Daniel — male (UK)', gender: 'm' },
+  { id: 'IKne3meq5aSn9XLyUdCD', label: 'Charlie — male (AU)', gender: 'm' },
+  { id: 'XrExE9yKIg1WjnnlVkGX', label: 'Matilda — female (AU)', gender: 'f' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Sarah — female (US)', gender: 'f' },
+  { id: '9BWtsMINqrJLrRacOk9x', label: 'Aria — female (US)', gender: 'f' },
   { id: 'TX3LPaxmHKxFdv7VOQHJ', label: 'Liam — male (US)', gender: 'm' },
   { id: 'bIHbv24MWmeRgasZH58o', label: 'Will — male (US)', gender: 'm' },
-  { id: 'IKne3meq5aSn9XLyUdCD', label: 'Charlie — male (AU)', gender: 'm' },
 ]
 
 export const PREMIUM_VOICES: Record<PremiumEngine, GenderedVoice[]> = {

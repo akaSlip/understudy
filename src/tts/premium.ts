@@ -178,6 +178,15 @@ export function elevenLabsText(model: string, segments: LineSegment[]): string {
 let elevenFetchKey: string | null = null
 let elevenFetch: Promise<GenderedVoice[]> | null = null
 
+/** UK voices lead, then AU, then US — matching the app's casting preference. */
+export function accentRank(label: string): number {
+  const l = label.toLowerCase()
+  if (/british|\buk\b|england|received/.test(l)) return 0
+  if (/australi|\bau\b|new zealand/.test(l)) return 1
+  if (/american|\bus\b/.test(l)) return 2
+  return 3
+}
+
 /** Map an API voice entry to our shape; gender from labels, else the name. */
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
 export function mapElevenVoice(v: any): GenderedVoice | null {
@@ -199,7 +208,10 @@ export function fetchElevenVoices(cfg: { apiKey?: string; proxyUrl?: string }): 
     if (!res.ok) throw new Error(`ElevenLabs error ${res.status}: ${await res.text().catch(() => '')}`)
     const json = await res.json()
     /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-    const voices = ((json?.voices ?? []) as any[]).map(mapElevenVoice).filter((v): v is GenderedVoice => v !== null)
+    const voices = ((json?.voices ?? []) as any[])
+      .map(mapElevenVoice)
+      .filter((v): v is GenderedVoice => v !== null)
+      .sort((a, b) => accentRank(a.label) - accentRank(b.label)) // UK → AU → US → rest
     if (voices.length) PREMIUM_VOICES.elevenlabs.splice(0, PREMIUM_VOICES.elevenlabs.length, ...voices)
     return voices
   })()

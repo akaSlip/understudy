@@ -14,13 +14,20 @@ const TITLES: Record<string, Gender> = {
 }
 
 // Role / relationship words that imply a gender, checked anywhere in the name.
+// Includes the classic stage roles ("FIRST MURDERER", "LORDS") that plays use
+// for unnamed parts — these were falling through to "any voice" and getting
+// mis-gendered.
 const ROLES: Record<string, Gender> = {
   king: 'm', prince: 'm', duke: 'm', earl: 'm', baron: 'm', knight: 'm', son: 'm', boy: 'm', man: 'm',
   husband: 'm', groom: 'm', widower: 'm', waiter: 'm', butler: 'm', footman: 'm', huntsman: 'm', watchman: 'm',
-  gentleman: 'm', priest: 'm', monk: 'm', friar: 'm', bishop: 'm', emperor: 'm', soldier: 'm', guard: 'm',
+  gentleman: 'm', gentlemen: 'm', priest: 'm', monk: 'm', friar: 'm', bishop: 'm', emperor: 'm', soldier: 'm',
+  soldiers: 'm', guard: 'm', guards: 'm', lord: 'm', lords: 'm', murderer: 'm', murderers: 'm', captain: 'm',
+  sergeant: 'm', porter: 'm', officer: 'm', apothecary: 'm', shepherd: 'm', clown: 'm', fool: 'm', page: 'm',
+  herald: 'm', uncle: 'm', father: 'm', brother: 'm', grandfather: 'm', prophet: 'm', wizard: 'm',
   queen: 'f', princess: 'f', duchess: 'f', countess: 'f', baroness: 'f', daughter: 'f', girl: 'f', woman: 'f',
   wife: 'f', bride: 'f', widow: 'f', maid: 'f', maiden: 'f', nurse: 'f', governess: 'f', waitress: 'f',
-  gentlewoman: 'f', nun: 'f', abbess: 'f', empress: 'f', mother: 'f', aunt: 'f', mrs: 'f',
+  gentlewoman: 'f', nun: 'f', abbess: 'f', empress: 'f', mother: 'f', aunt: 'f', mrs: 'f', witch: 'f',
+  witches: 'f', ladies: 'f', grandmother: 'f', shepherdess: 'f', sister: 'f',
 }
 
 const FEMALE_NAMES = new Set(

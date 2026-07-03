@@ -591,15 +591,15 @@ function mkAuditEngine(opts: { autoAdvance?: boolean; partnerNeverEnds?: boolean
     speaker: sp as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     recognizer: recognizer as any,
-    voiceMap: new Map([['B', { engine: 'webspeech' as const, rate: 1, direction: 'pompous and clipped' }]]),
+    voiceMap: new Map([['B', { engine: 'webspeech' as const, rate: 1, direction: 'pompous and clipped', age: 'elderly' as const }]]),
     narratorVoice: { engine: 'webspeech' },
     settings: { ...settings, autoAdvance: true },
     onUpdate: (s) => { st = s },
   })
   await eng.start(); await new Promise((r) => setTimeout(r, 50))
   const spoken = seen[0] ?? []
-  check('personality fills spans with no inline cue', spoken[0]?.direction === 'pompous and clipped', spoken)
-  check('inline vocal cue overrides the personality for its span', spoken[1]?.direction === 'furious', spoken)
+  check('age + personality fill spans with no inline cue', spoken[0]?.direction === 'an elderly, aged voice, pompous and clipped', spoken)
+  check('inline vocal cue overrides the standing delivery for its span', spoken[1]?.direction === 'furious', spoken)
   check('flow reaches the actor line as usual', st.beat?.id === 'm1', st.beat?.id)
   eng.dispose()
 }

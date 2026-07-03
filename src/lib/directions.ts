@@ -135,3 +135,55 @@ export function segmentGapMs(direction?: string): number {
 }
 
 export { clamp as clampProsody }
+
+// ---------------------------------------------------------------------------
+// Voice age bands
+// ---------------------------------------------------------------------------
+
+import type { AgeBand } from '../types'
+
+export const AGE_BANDS: Array<{ value: AgeBand; label: string }> = [
+  { value: 'child', label: 'Child' },
+  { value: 'adolescent', label: 'Adolescent' },
+  { value: 'young-adult', label: 'Young adult' },
+  { value: 'adult', label: 'Adult' },
+  { value: 'senior', label: 'Senior' },
+  { value: 'elderly', label: 'Elderly' },
+]
+
+/** Phrase folded into the standing delivery for cloud engines. 'adult' is the
+ *  neutral default — no phrase. */
+export function agePhrase(age?: AgeBand): string | undefined {
+  switch (age) {
+    case 'child':
+      return "a young child's voice"
+    case 'adolescent':
+      return 'a teenage voice'
+    case 'young-adult':
+      return 'a young adult voice'
+    case 'senior':
+      return 'an older, mature voice'
+    case 'elderly':
+      return 'an elderly, aged voice'
+    default:
+      return undefined
+  }
+}
+
+/** Pitch/rate multipliers approximating age on the System (Web Speech) voice. */
+export function ageProsody(age?: AgeBand): { rate: number; pitch: number } {
+  switch (age) {
+    case 'child':
+      return { rate: 1.08, pitch: 1.5 }
+    case 'adolescent':
+      return { rate: 1.05, pitch: 1.25 }
+    case 'young-adult':
+      return { rate: 1.02, pitch: 1.1 }
+    case 'senior':
+      return { rate: 0.92, pitch: 0.92 }
+    case 'elderly':
+      return { rate: 0.84, pitch: 0.82 }
+    default:
+      return { rate: 1, pitch: 1 }
+  }
+}

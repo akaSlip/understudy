@@ -19,13 +19,28 @@ export function synthesisSupported(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window
 }
 
+/** Locale preference for listing and auto-casting: UK first, then AU/NZ, then
+ *  US, then other English, then everything else. Stable within each band. */
+export function localeRank(lang?: string): number {
+  const l = (lang ?? '').toLowerCase()
+  if (l.startsWith('en-gb')) return 0
+  if (l.startsWith('en-au') || l.startsWith('en-nz')) return 1
+  if (l.startsWith('en-us')) return 2
+  if (l.startsWith('en')) return 3
+  return 4
+}
+
+export function sortVoicesByLocale<T extends { lang?: string }>(voices: T[]): T[] {
+  return [...voices].sort((a, b) => localeRank(a.lang) - localeRank(b.lang))
+}
+
 export function listWebSpeechVoices(): Promise<TTSVoice[]> {
   if (!synthesisSupported()) return Promise.resolve([])
   return new Promise((resolve) => {
     const collect = () => {
       voicesCache = window.speechSynthesis.getVoices()
       resolve(
-        voicesCache.map((v) => ({ id: v.name, label: `${v.name} (${v.lang})`, lang: v.lang })),
+        sortVoicesByLocale(voicesCache.map((v) => ({ id: v.name, label: `${v.name} (${v.lang})`, lang: v.lang }))),
       )
     }
     const now = window.speechSynthesis.getVoices()
@@ -46,8 +61,10 @@ function pickVoice(voiceId?: string): SpeechSynthesisVoice | undefined {
     const exact = voicesCache.find((v) => v.name === voiceId)
     if (exact) return exact
   }
-  // Prefer a natural-sounding English voice.
+  // Prefer a natural-sounding UK voice, then any UK, then natural English, then any English.
   return (
+    voicesCache.find((v) => /en[-_]gb/i.test(v.lang) && /natural|google|premium|enhanced/i.test(v.name)) ||
+    voicesCache.find((v) => /en[-_]gb/i.test(v.lang)) ||
     voicesCache.find((v) => /en[-_]/i.test(v.lang) && /natural|google|premium|enhanced/i.test(v.name)) ||
     voicesCache.find((v) => /en[-_]/i.test(v.lang)) ||
     voicesCache[0]

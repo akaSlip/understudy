@@ -1307,3 +1307,15 @@ legend {
 .cue-legend {
   margin-top: 0.35rem;
 }
+
+/* Cast panel age select */
+.cast-row .age-select {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.3rem 0.4rem;
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Route } from '../App'
-import type { Character, Play, VoiceAssignment } from '../types'
+import type { AgeBand, Character, Play, VoiceAssignment } from '../types'
 import { adoptExistingIds, mergeConsecutiveDialogue, parseScript, toFountain } from '../lib/fountain'
+import { AGE_BANDS } from '../lib/directions'
 import { extractText, needsExtraction } from '../lib/ingest'
 import { characterKey, uid } from '../lib/util'
 import { getPlay, savePlay } from '../store/playsRepo'
@@ -13,6 +14,7 @@ import { useApp } from './useApp'
 interface Override {
   voiceId?: string
   direction?: string
+  age?: AgeBand
   notes?: string
 }
 
@@ -57,8 +59,11 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
   const { settings, reloadPlays } = useApp()
   // A standing character personality only genuinely changes speech mannerism on
   // the instruction-steerable cloud voices — the free voices ignore it, so the
-  // field is hidden there rather than offering a placebo.
+  // field is hidden there rather than offering a placebo. Age works on the
+  // System voice (pitch/rate) and cloud engines (instruction); Kokoro has no
+  // age control, so the select is hidden for it.
   const personalityWorks = isPremiumEngine(settings.tts)
+  const ageWorks = settings.tts !== 'kokoro'
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
   const [scriptText, setScriptText] = useState('')
@@ -95,7 +100,12 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
       setScriptText(toFountain({ characters: p.characters, beats: p.beats }))
       const ov: Record<string, Override> = {}
       for (const c of p.characters) {
-        ov[characterKey(c.name)] = { voiceId: c.voice?.voiceId, direction: c.voice?.direction, notes: c.notes }
+        ov[characterKey(c.name)] = {
+          voiceId: c.voice?.voiceId,
+          direction: c.voice?.direction,
+          age: c.voice?.age,
+          notes: c.notes,
+        }
       }
       setOverrides(ov)
     })()
@@ -125,8 +135,13 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
       const key = characterKey(c.name)
       const ov = overrides[key]
       const voice: VoiceAssignment | undefined =
-        ov && (ov.voiceId || ov.direction)
-          ? { engine: settings.tts, voiceId: ov.voiceId || undefined, direction: ov.direction || undefined }
+        ov && (ov.voiceId || ov.direction || ov.age)
+          ? {
+              engine: settings.tts,
+              voiceId: ov.voiceId || undefined,
+              direction: ov.direction || undefined,
+              age: ov.age || undefined,
+            }
           : undefined
       return { ...c, voice, notes: ov?.notes }
     })
@@ -307,6 +322,21 @@ export function Editor({ playId, go }: { playId?: string; go: (r: Route) => void
                     </option>
                   ))}
                 </select>
+                {ageWorks && (
+                  <select
+                    className="age-select"
+                    value={ov.age ?? ''}
+                    aria-label={`Voice age for ${c.name}`}
+                    onChange={(e) => setOverride(key, { age: (e.target.value || undefined) as AgeBand | undefined })}
+                  >
+                    <option value="">Age: adult (default)</option>
+                    {AGE_BANDS.map((a) => (
+                      <option key={a.value} value={a.value}>
+                        Age: {a.label.toLowerCase()}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {personalityWorks && (
                   <input
                     className="direction"

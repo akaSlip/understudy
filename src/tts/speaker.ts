@@ -2,6 +2,7 @@
 // right engine, caches blob-producing engines, and gives clean stop/abort.
 
 import type { LineSegment, VoiceAssignment } from '../types'
+import { ageProsody } from '../lib/directions'
 import { getCachedAudio, hasCachedAudio, putCachedAudio } from '../store/audioCache'
 import { generateKokoro } from './kokoro'
 import { generatePremium, isPremiumEngine, plainText, type PremiumConfig } from './premium'
@@ -60,7 +61,15 @@ export class Speaker {
     const rate = voice.rate ?? this.cfg.rate
 
     if (voice.engine === 'webspeech') {
-      return speakWebSpeechSegments(segments, { voiceId: voice.voiceId, rate, pitch: voice.pitch, signal, onStart })
+      // The System voice approximates a character's age with pitch/rate.
+      const age = ageProsody(voice.age)
+      return speakWebSpeechSegments(segments, {
+        voiceId: voice.voiceId,
+        rate: rate * age.rate,
+        pitch: (voice.pitch ?? 1) * age.pitch,
+        signal,
+        onStart,
+      })
     }
 
     const key = this.keyFor(voice, segments)

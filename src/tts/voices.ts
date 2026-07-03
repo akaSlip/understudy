@@ -91,7 +91,17 @@ export async function buildVoiceMap(
   }
   for (const c of characters) {
     if (c.id === myCharacterId || map.has(c.id)) continue
-    map.set(c.id, { engine, voiceId: pickFor(guessGender(c.name)), rate, direction: c.voice?.direction })
+    // Unknown gender falls back to a MALE voice: classical cast lists skew
+    // male for unnamed parts (Murderer, Lords, Servant …), and defaulting to
+    // "next unused" was handing female voices to male roles. Always
+    // overridable in the cast panel / in-rehearsal Voices panel.
+    map.set(c.id, {
+      engine,
+      voiceId: pickFor(guessGender(c.name) ?? 'm'),
+      rate,
+      direction: c.voice?.direction,
+      age: c.voice?.age,
+    })
   }
   return map
 }
