@@ -6,9 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0f13" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f3ee" />
-    <!-- Defence-in-depth: no remote scripts/objects; connections limited to HTTPS
-         APIs + model CDNs. 'unsafe-inline' script is required by the theme
-         bootstrap below and Vite's dev preamble. -->
+    <!-- Defence-in-depth: blocks remote scripts/objects and non-HTTPS egress.
+         connect-src stays broad ('https:') because vendor hosts vary by region
+         and users may configure their own relay — the privacy guarantee lives
+         in the application code, not this policy. 'unsafe-inline' script is
+         required by the theme bootstrap below and Vite's dev preamble. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: wss: data: blob:; object-src 'none'; base-uri 'self'; form-action 'self'"

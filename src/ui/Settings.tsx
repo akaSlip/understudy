@@ -100,7 +100,9 @@ export function Settings() {
               onChange={() => updateSettings({ recognizer: 'webspeech' })}
             />
             <span>
-              <strong>Web Speech API</strong> — real-time, cloud-backed. {webSpeechOk ? '' : 'Not available in this browser.'}
+              <strong>Web Speech API</strong> — real-time, but your microphone audio is sent to your browser
+              vendor's servers (e.g. Google) for transcription. Choose Whisper if nothing should leave this device.{' '}
+              {webSpeechOk ? '' : 'Not available in this browser.'}
             </span>
           </label>
         </fieldset>
@@ -116,7 +118,8 @@ export function Settings() {
               onChange={() => updateSettings({ tts: 'webspeech' })}
             />
             <span>
-              <strong>System voice</strong> — free, instant, offline. Quality varies by device.
+              <strong>System voice</strong> — free and instant; offline on most devices (some system voices use the
+              OS vendor's servers). Quality varies by device.
             </span>
           </label>
           <label className="opt">
@@ -468,7 +471,7 @@ function PremiumVoiceConfig(props: {
           <label className="field">
             <span>Relay URL (optional)</span>
             <input
-              placeholder="Only if direct calls are CORS-blocked"
+              placeholder="Only if direct calls are CORS-blocked — your key and line text will be sent to this URL"
               value={cfg.proxyUrl ?? ''}
               onChange={(e) => onPatch({ proxyUrl: e.target.value.trim() || undefined })}
             />
