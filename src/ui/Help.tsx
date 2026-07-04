@@ -79,6 +79,33 @@ export function Help() {
       </section>
 
       <section className="help-block">
+        <h3>During rehearsal</h3>
+        <p>The toolbar at the bottom of the stage holds everything you need mid-scene:</p>
+        <ul>
+          <li>
+            <strong>Show line / Try again / Next</strong> — reveal the words when stuck, redo a line, or move on.
+          </li>
+          <li>
+            <strong>Auto-cue</strong> — move on automatically when you finish a line, or turn it off to go at your
+            own pace.
+          </li>
+          <li>
+            <strong>🎭 Voices</strong> — swap any character's voice mid-rehearsal.
+          </li>
+          <li>
+            <strong>🎚 Tune</strong> — turn scoring off to read along without the mic, adjust the accuracy needed to
+            pass, switch on <strong>auto-scroll</strong> for long speeches (off by default; your lines crawl at a
+            speed you choose, the partner's follow the voice), and show the projection meter.
+          </li>
+        </ul>
+        <p className="muted small">
+          While you speak, a level meter runs down the right edge of the screen. With projection coaching on it shows
+          a loudness target to push past — great for building stage volume. On tablets and computers, Settings can
+          also show a one-line peek of your next line.
+        </p>
+      </section>
+
+      <section className="help-block">
         <h3>Your privacy</h3>
         <p>
           Everything stays on this device: your plays, edits, scores, settings, and any API keys. There are no

@@ -85,7 +85,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   alwaysShowMyLines: true,
   showDirections: true,
   theme: 'system',
-  autoScrollLines: true,
+  autoScrollLines: false,
   autoScrollSpeed: 40,
   showNextPeek: false,
   projectionCoaching: false,
