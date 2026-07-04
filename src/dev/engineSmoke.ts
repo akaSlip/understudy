@@ -86,6 +86,7 @@ handlers!.onFinal('hello there friend')
 await tick()
 check('b1 scored and passed', !!last.score?.passed, last.score?.accuracy)
 check('b1 recorded as an attempt', last.attempts.length === 1 && last.attempts[0].passed)
+check('attempt carries the per-word colour map', last.attempts[0].words?.length === 3 && last.attempts[0].words!.every((w) => w.status === 'match'), last.attempts[0].words)
 
 engine.next()
 await tick()
@@ -94,6 +95,7 @@ check('advanced through partner b2 to my line b3', last.beat?.id === 'b3' && las
 handlers!.onFinal('completely wrong words')
 await tick()
 check('b3 did not pass', last.score && !last.score.passed, last.score?.accuracy)
+check('failed line words include non-match statuses', last.score!.words.some((w) => w.status !== 'match'), last.score?.words.map((w) => w.status))
 
 engine.next()
 await tick()

@@ -61,7 +61,10 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   recognizer: 'whisper',
   whisperModel: 'tiny',
-  tts: 'webspeech',
+  // Kokoro by default: fully on-device and identical on every platform —
+  // the System voice depends on locally installed voices (often absent on
+  // Linux), and cloud engines need a key. First use downloads the model once.
+  tts: 'kokoro',
   premium: {},
   passThreshold: 0.8,
   strict: false,

@@ -982,7 +982,15 @@ function SummaryView(props: {
             <li key={i} className={a.passed ? 'pass' : 'fail'}>
               <div className="attempt-head">
                 <span className="acc-num small">{Math.round(a.accuracy * 100)}%</span>
-                <span className="target">{a.target}</span>
+                <span className="target">
+                  {a.words?.length
+                    ? a.words.map((w, wi) => (
+                        <span key={wi} className={`word ${w.status}`}>
+                          {w.raw}{' '}
+                        </span>
+                      ))
+                    : a.target}
+                </span>
                 {showProjection && (a.projection ?? 0) > 0 && (
                   <span className={`proj-chip ${proj >= targetPct ? 'ok' : 'low'}`} title="projection">
                     🔊 {proj}%

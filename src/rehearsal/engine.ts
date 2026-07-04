@@ -6,7 +6,7 @@
 //                          line as a prompt when they go quiet or stall.
 // The engine is UI-agnostic: it pushes immutable snapshots via onUpdate.
 
-import type { Beat, LineScore, LineSegment, Play, VoiceAssignment } from '../types'
+import type { Beat, LineScore, LineSegment, Play, TargetWord, VoiceAssignment } from '../types'
 import type { Recognizer } from '../audio/recognizer'
 import type { AppSettings } from '../store/settings'
 import type { Speaker } from '../tts/speaker'
@@ -26,6 +26,8 @@ export interface LineAttempt {
   transcript: string
   accuracy: number
   passed: boolean
+  /** Per-word colour map from the final scoring of this line. */
+  words?: TargetWord[]
   /** Mean input loudness 0..1 while delivering this line (projection coaching). */
   projection?: number
 }
@@ -553,6 +555,7 @@ export class RehearsalEngine {
       transcript: this.transcript,
       accuracy: this.score?.accuracy ?? 0,
       passed: this.score?.passed ?? false,
+      words: this.score?.words,
       projection: this.levelCount ? this.levelSum / this.levelCount : 0,
     }
   }
