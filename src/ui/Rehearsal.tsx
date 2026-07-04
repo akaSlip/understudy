@@ -99,6 +99,16 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
     () => (play ? summarizeSection(play, myCharId, order) : { beats: 0, myLines: 0, clusters: 0 }),
     [play, myCharId, order],
   )
+  // The actor's NEXT line after the current position (for the peek strip).
+  const nextMyLine = useMemo(() => {
+    if (!play || !state) return undefined
+    for (let p = state.beatIndex + 1; p < order.length; p++) {
+      const b = play.beats[order[p]]
+      if (b?.kind === 'dialogue' && b.characterId === myCharId) return b.text
+    }
+    return undefined
+  }, [play, state, order, myCharId])
+
   const compat = useMemo(() => compatibilityReport(detectCapabilities(), settings), [settings])
   const blocked = hasBlockingIssue(compat)
 
@@ -273,6 +283,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
       levelStore={levelStore}
       engine={engineRef.current!}
       myCharId={myCharId}
+      nextMyLine={nextMyLine}
       onUpdateSettings={updateSettings}
       voiceAssignments={voiceAssignments}
       onChangeVoice={(charId, voiceId) => {
@@ -663,6 +674,8 @@ function RunningView(props: {
   levelStore: LevelStore
   engine: RehearsalEngine
   myCharId: string
+  /** First words of the actor's NEXT line (peek shown on larger screens). */
+  nextMyLine?: string
   voiceAssignments: Map<string, VoiceAssignment>
   onChangeVoice: (characterId: string, voiceId?: string) => void
   onUpdateSettings: (patch: Partial<AppSettings>) => void
@@ -671,6 +684,44 @@ function RunningView(props: {
 }) {
   const { play, state, settings, engine, levelStore } = props
   const nameById = useMemo(() => new Map(play.characters.map((c) => [c.id, c.name])), [play])
+
+  // Every beat starts at the top of the page.
+  const beatId = state.beat?.id
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [beatId])
+
+  // Auto-scroll LONG lines so the current text stays in view: the actor's own
+  // lines crawl at the configured speed; the partner's are paced to the
+  // estimated reading time, leading slightly so the next words are visible
+  // before they're spoken.
+  useEffect(() => {
+    if (!settings.autoScrollLines) return
+    const overflow = document.documentElement.scrollHeight - window.innerHeight
+    if (overflow <= 8) return
+    let pxPerSec: number
+    if (state.isMyLine && state.listening) {
+      pxPerSec = settings.autoScrollSpeed
+    } else if (state.phase === 'partner' && state.partnerSpeaking) {
+      const words = (state.beat?.text ?? '').split(/\s+/).length
+      const seconds = Math.max(3, words / (2.6 * (settings.ttsRate || 1))) // ≈156 wpm
+      pxPerSec = ((overflow + 60) / seconds) * 1.2 // lead ~20% ahead of the voice
+    } else {
+      return
+    }
+    let raf = 0
+    let last = performance.now()
+    const step = (t: number) => {
+      const dt = (t - last) / 1000
+      last = t
+      window.scrollBy(0, pxPerSec * dt)
+      if (window.innerHeight + window.scrollY < document.documentElement.scrollHeight - 1) {
+        raf = requestAnimationFrame(step)
+      }
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [beatId, state.phase, state.partnerSpeaking, state.listening, state.isMyLine, state.beat?.text, settings.autoScrollLines, settings.autoScrollSpeed, settings.ttsRate])
   const [autoCue, setAutoCue] = useState(settings.autoAdvance)
   // One-of-three panel state — a single field can't have two panels open.
   const [panel, setPanel] = useState<'none' | 'voices' | 'tune'>('none')
@@ -708,14 +759,7 @@ function RunningView(props: {
               YOU — {speaker}
               {state.listening && <span className="listening-tag">🎙 listening</span>}
             </div>
-            {state.listening && (
-              <LevelMeter
-                className="in-card"
-                store={levelStore}
-                coaching={settings.projectionCoaching}
-                target={settings.projectionTarget}
-              />
-            )}
+
             {direction && <div className="direction-note">{direction}</div>}
             {state.score ? (
               <WordDiff words={state.score.words} revealed={showMine} score={state.score} />
@@ -763,6 +807,21 @@ function RunningView(props: {
       <p className="muted small center beat-counter">
         Step {state.beatIndex + 1} of {state.totalBeats}
       </p>
+
+      {state.listening && (
+        <LevelMeter
+          className="edge"
+          store={levelStore}
+          coaching={settings.projectionCoaching}
+          target={settings.projectionTarget}
+        />
+      )}
+
+      {props.settings.showNextPeek && props.nextMyLine && (
+        <p className="next-peek muted" title="Your next line">
+          <span className="next-peek-label">Next (you)</span> {props.nextMyLine}
+        </p>
+      )}
 
       {/* Fixed toolbar: every control keeps its slot line-to-line (disabled when
           not applicable) so nothing shifts under the mouse; docks to the screen
@@ -887,6 +946,29 @@ function RunningView(props: {
               }}
             />
           </label>
+          <label className="opt">
+            <input
+              type="checkbox"
+              checked={settings.autoScrollLines}
+              onChange={(e) => props.onUpdateSettings({ autoScrollLines: e.target.checked })}
+            />
+            <span>
+              <strong>Auto-scroll long lines</strong> — keep the current words in view on big speeches
+            </span>
+          </label>
+          {settings.autoScrollLines && (
+            <label className="range">
+              <span>My lines scroll speed</span>
+              <input
+                type="range"
+                min={15}
+                max={120}
+                step={5}
+                value={settings.autoScrollSpeed}
+                onChange={(e) => props.onUpdateSettings({ autoScrollSpeed: Number(e.target.value) })}
+              />
+            </label>
+          )}
           <label className="opt">
             <input
               type="checkbox"

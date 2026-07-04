@@ -1,4 +1,6 @@
 :root {
+  /* Height of the fixed rehearsal toolbar (mobile media query overrides). */
+  --controls-h: 84px;
   /* Dark theme (default) */
   --font-display: 'Fraunces Variable', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
   --font-body: 'Outfit Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -806,17 +808,32 @@ button:focus-visible,
   border-color: var(--match);
   box-shadow: 0 0 8px rgba(95, 208, 138, 0.45);
 }
-/* Anchored to the right edge of the actor's beat card. */
-.level-meter.in-card {
-  position: absolute;
-  right: 0.9rem;
-  top: 0.9rem;
-  bottom: 0.9rem;
+/* The live meter pins to the RIGHT EDGE of the screen while listening — the
+   same design on every device and browser, always fully in view: from just
+   below the top bar to just above the controls, independent of card size. */
+.level-meter.edge {
+  position: fixed;
+  right: 5px;
+  top: calc(4rem + env(safe-area-inset-top, 0px));
+  bottom: calc(var(--controls-h, 84px) + 12px + env(safe-area-inset-bottom, 0px));
   height: auto;
+  width: 14px;
+  z-index: 8;
 }
-.beat-card.mine.listening,
-.beat-card.mine.stuck {
-  padding-right: 3.4rem;
+@media (min-width: 561px) {
+  .level-meter.edge {
+    width: 18px;
+    right: 10px;
+  }
+}
+/* Keep the spoken words clear of the edge meter. */
+.stage .beat-card {
+  margin-right: 26px;
+}
+@media (min-width: 981px) {
+  .stage .beat-card {
+    margin-right: 0; /* wide screens: the centred card never reaches the edge */
+  }
 }
 .listening-tag {
   margin-left: 0.55rem;
@@ -1021,11 +1038,11 @@ button:focus-visible,
 
 /* Rehearsal content must clear the fixed toolbar at any height. */
 .stage {
-  padding-bottom: calc(var(--controls-h) + 0.5rem);
+  padding-bottom: calc(var(--controls-h, 84px) + 0.5rem);
 }
 /* On pages WITH the toolbar, the desktop toast floats above it. */
 body:has(.controls) .pwa-toast {
-  bottom: calc(var(--controls-h) + 1rem);
+  bottom: calc(var(--controls-h, 84px) + 1rem);
 }
 @media (max-width: 620px) {
   body:has(.controls) .pwa-toast {
@@ -1698,5 +1715,65 @@ legend {
   }
   .presets button {
     min-height: 40px;
+  }
+}
+
+
+/* Next-line peek (tablet/desktop only) */
+.next-peek {
+  max-width: 60rem;
+  margin: 0.6rem auto 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+  text-align: center;
+}
+.next-peek-label {
+  color: var(--accent);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  margin-right: 0.5rem;
+}
+@media (max-width: 560px) {
+  .next-peek {
+    display: none;
+  }
+}
+
+/* Mobile: quick picks as an orderly grid — label row, then even chips, then
+   Fine-tune on its own line. Footer buttons even and centred. */
+@media (max-width: 560px) {
+  .presets {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+    align-items: stretch;
+  }
+  .presets > span {
+    grid-column: 1 / -1;
+  }
+  .presets button {
+    width: 100%;
+    min-height: 42px;
+  }
+  details.fine-tune {
+    margin-top: 0.6rem;
+  }
+  .start-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+  .start-row button,
+  .start-row button.ghost,
+  .start-row button.primary {
+    width: 100%;
+    padding: 0.7rem 0.4rem;
+    font-size: 0.95rem;
   }
 }

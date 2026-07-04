@@ -265,6 +265,17 @@ export function Settings() {
           <label className="opt">
             <input
               type="checkbox"
+              checked={settings.showNextPeek}
+              onChange={(e) => updateSettings({ showNextPeek: e.target.checked })}
+            />
+            <span>
+              <strong>Peek my next line</strong> — show the first words of your upcoming line during rehearsal
+              (tablets and computers only).
+            </span>
+          </label>
+          <label className="opt">
+            <input
+              type="checkbox"
               checked={settings.showDirections}
               onChange={(e) => updateSettings({ showDirections: e.target.checked })}
             />

@@ -52,6 +52,14 @@ export interface AppSettings {
   showDirections: boolean
   /** Colour theme; 'system' follows the OS preference. */
   theme: Theme
+  /** Auto-scroll long lines: the actor's own (at a set speed) and the
+   *  partner's (paced to the reading) so the current text stays in view. */
+  autoScrollLines: boolean
+  /** Actor auto-scroll speed in pixels per second. */
+  autoScrollSpeed: number
+  /** Peek the first words of the actor's NEXT line during rehearsal
+   *  (tablet/desktop only — hidden on phones). */
+  showNextPeek: boolean
   /** Coach vocal projection using the mic level (off for quiet environments). */
   projectionCoaching: boolean
   /** Target loudness 0..1 to aim for when projection coaching is on. */
@@ -77,6 +85,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   alwaysShowMyLines: true,
   showDirections: true,
   theme: 'system',
+  autoScrollLines: true,
+  autoScrollSpeed: 40,
+  showNextPeek: false,
   projectionCoaching: false,
   projectionTarget: 0.5,
 }
