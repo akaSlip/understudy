@@ -110,7 +110,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
           b.characterId === myCharId
             ? 'YOU'
             : (play.characters.find((c) => c.id === b.characterId)?.name ?? '')
-        return { who, text: b.text }
+        return { who, text: b.text, characterId: b.characterId }
       }
     }
     return undefined
@@ -681,7 +681,7 @@ function RunningView(props: {
   engine: RehearsalEngine
   myCharId: string
   /** The next dialogue line + its speaker (peek shown on larger screens). */
-  nextLine?: { who: string; text: string }
+  nextLine?: { who: string; text: string; characterId: string }
   voiceAssignments: Map<string, VoiceAssignment>
   onChangeVoice: (characterId: string, voiceId?: string) => void
   onUpdateSettings: (patch: Partial<AppSettings>) => void
@@ -789,7 +789,7 @@ function RunningView(props: {
           </>
         ) : (
           <>
-            <div className="beat-role partner">
+            <div className={`beat-role partner ${castColourClass(play, props.myCharId, beat.characterId)}`}>
               {speaker}
               {state.phase === 'partner' &&
                 (state.partnerSpeaking ? (
@@ -821,7 +821,12 @@ function RunningView(props: {
 
       {props.settings.showNextPeek && props.nextLine && (
         <p className="next-peek muted" title="Next line">
-          <span className="next-peek-label">Next ({props.nextLine.who})</span> {props.nextLine.text}
+          <span
+            className={`next-peek-label ${props.nextLine.who === 'YOU' ? '' : castColourClass(play, props.myCharId, props.nextLine.characterId)}`}
+          >
+            Next ({props.nextLine.who})
+          </span>{' '}
+          {props.nextLine.text}
         </p>
       )}
 
@@ -1103,6 +1108,15 @@ function SummaryView(props: {
  *  pause still reads as "listening"), and swell with your actual voice level.
  *  With projection coaching on, a target marker appears and the bars turn green
  *  once you're projecting past it. */
+/** Stable colour class for a scene-partner character: each auto-actor gets a
+ *  distinct hue (by cast order); the actor's own lines keep the stage amber. */
+function castColourClass(play: Play, myCharId: string, characterId?: string): string {
+  if (!characterId || characterId === myCharId) return ''
+  const others = play.characters.filter((c) => c.id !== myCharId)
+  const i = others.findIndex((c) => c.id === characterId)
+  return i >= 0 ? `cast-c${i % 6}` : ''
+}
+
 /** Tiny external store for the live mic level (+ a decaying peak hold):
  *  updated ~15×/s by the VAD, read only by the LevelMeter via
  *  useSyncExternalStore — so the frequent ticks never re-render the rest of
@@ -1284,7 +1298,7 @@ function VoicePanel(props: {
             const current = assignments.get(c.id)?.voiceId ?? ''
             return (
               <li key={c.id} className={speakingCharId === c.id ? 'speaking' : ''}>
-                <span className="voice-char">
+                <span className={`voice-char ${castColourClass(play, myCharId, c.id)}`}>
                   {c.name}
                   {speakingCharId === c.id && <span className="speaking-dot" title="speaking now" />}
                 </span>

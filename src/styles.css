@@ -1809,3 +1809,35 @@ legend {
     z-index: 46;
   }
 }
+
+/* Cast identity colours: each auto-actor keeps one hue everywhere their name
+   appears (partner card, next-line peek, Voices panel). YOU stays amber. */
+:root {
+  --cast-0: #7fb8e6;
+  --cast-1: #b295e8;
+  --cast-2: #5fc9b3;
+  --cast-3: #e58fb4;
+  --cast-4: #a2c878;
+  --cast-5: #d98a6a;
+}
+:root[data-theme='light'] {
+  --cast-0: #2f6ea8;
+  --cast-1: #6a4fb0;
+  --cast-2: #1f8a74;
+  --cast-3: #b34a7d;
+  --cast-4: #5f7d33;
+  --cast-5: #a8542f;
+}
+.cast-c0 { color: var(--cast-0); }
+.cast-c1 { color: var(--cast-1); }
+.cast-c2 { color: var(--cast-2); }
+.cast-c3 { color: var(--cast-3); }
+.cast-c4 { color: var(--cast-4); }
+.cast-c5 { color: var(--cast-5); }
+/* Ensure the identity colour wins over the components' default greys/ambers. */
+.beat-role.cast-c0, .next-peek-label.cast-c0, .voice-char.cast-c0 { color: var(--cast-0); }
+.beat-role.cast-c1, .next-peek-label.cast-c1, .voice-char.cast-c1 { color: var(--cast-1); }
+.beat-role.cast-c2, .next-peek-label.cast-c2, .voice-char.cast-c2 { color: var(--cast-2); }
+.beat-role.cast-c3, .next-peek-label.cast-c3, .voice-char.cast-c3 { color: var(--cast-3); }
+.beat-role.cast-c4, .next-peek-label.cast-c4, .voice-char.cast-c4 { color: var(--cast-4); }
+.beat-role.cast-c5, .next-peek-label.cast-c5, .voice-char.cast-c5 { color: var(--cast-5); }
