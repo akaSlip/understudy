@@ -320,7 +320,9 @@ function SetupView(props: {
     <section className="setup">
       <div className="section-head">
         <h1>{play.title}</h1>
-        <button onClick={props.onBack}>Back</button>
+        <div className="actions">
+          <button onClick={props.onBack}>← Back</button>
+        </div>
       </div>
       <CompatBanner issues={props.compat} />
       <p className="muted">Which part are you playing? Understudy will perform everyone else and score your lines.</p>
@@ -338,11 +340,11 @@ function SetupView(props: {
 
       <SectionBuilder play={play} sections={sections} spec={spec} setSpec={setSpec} summary={summary} />
 
+      <p className="muted small">
+        Speech recognition: <strong>{props.recognizer === 'whisper' ? `Whisper (${props.whisperModel}, on-device)` : 'Web Speech'}</strong>
+        {' · '}Voices: <strong>{props.tts}</strong>. Change these in Settings.
+      </p>
       <div className="setup-foot">
-        <p className="muted small">
-          Speech recognition: <strong>{props.recognizer === 'whisper' ? `Whisper (${props.whisperModel}, on-device)` : 'Web Speech'}</strong>
-          {' · '}Voices: <strong>{props.tts}</strong>. Change these in Settings.
-        </p>
         <div className="start-row">
           <button className="ghost" onClick={props.onSoundCheck} title="Test your microphone and voice detection">
             🎙 Sound check

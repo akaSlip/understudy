@@ -1470,20 +1470,34 @@ legend {
     grid-column: 1 / -1;
     min-height: 50px;
   }
+  /* One-row footer: compact secondary beside a dominant primary CTA. */
   .start-row {
-    flex-direction: column-reverse;
+    flex-direction: row;
     align-items: stretch;
-    gap: 0.6rem;
+    gap: 0.5rem;
   }
   .start-row button {
-    width: 100%;
     min-height: 50px;
+  }
+  .start-row button.primary {
+    flex: 1;
+  }
+  .start-row button.ghost {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 0.6rem 0.7rem;
+    font-size: 0.92rem;
+  }
+  .start-row button.primary.big {
+    white-space: nowrap;
+    font-size: 1rem;
+    padding: 0.8rem 0.6rem;
   }
   .setup-foot {
     position: sticky;
     bottom: 0;
     background: var(--bg);
-    padding: 0.7rem 0 calc(0.7rem + env(safe-area-inset-bottom, 0px));
+    padding: 0.55rem 0 calc(0.55rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--border);
     margin: 0 -0.2rem;
   }
@@ -1640,5 +1654,31 @@ legend {
   .topbar nav button {
     min-width: 2.6rem;
     justify-content: center;
+  }
+}
+
+
+/* Mobile headers: a lone Back action becomes a compact link ABOVE a smaller
+   title (native back-navigation pattern) instead of a full-width button row. */
+@media (max-width: 560px) {
+  h1 {
+    font-size: 1.45rem;
+  }
+  .section-head:has(.actions button:first-child:last-of-type) {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.8rem;
+  }
+  .section-head:has(.actions button:first-child:last-of-type) .actions {
+    display: block;
+    width: auto;
+  }
+  .section-head:has(.actions button:first-child:last-of-type) .actions button {
+    width: auto;
+    min-height: 0;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.9rem;
+    background: transparent;
   }
 }
