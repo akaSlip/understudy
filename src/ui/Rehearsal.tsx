@@ -43,6 +43,13 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
   const levelStore = useRef(createLevelStore()).current
   const [voiceAssignments, setVoiceAssignments] = useState<Map<string, VoiceAssignment>>(new Map())
 
+  // The rehearsal flow swaps sub-views via state (not routes), so each one
+  // inherits the previous one's scroll position — reset on every transition.
+  const subView = showSoundCheck ? 'soundcheck' : !started ? 'setup' : state?.phase === 'done' ? 'summary' : 'running'
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [subView])
+
   const engineRef = useRef<RehearsalEngine | null>(null)
   const recognizerRef = useRef<Recognizer | null>(null)
   const startingRef = useRef(false)
@@ -448,10 +455,10 @@ function SoundCheckView(props: {
       <div className="setup-foot">
         <div className="start-row">
           <button className="ghost" onClick={() => onDone(false)}>
-            Back to setup
+            ← Setup
           </button>
           <button className="primary big" onClick={() => onDone(true)}>
-            {heard.length > 0 ? 'Sounds good — start rehearsal' : 'Start rehearsal anyway'}
+            {heard.length > 0 ? 'Sounds good — start' : 'Start anyway'}
           </button>
         </div>
       </div>

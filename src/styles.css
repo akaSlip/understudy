@@ -1494,12 +1494,21 @@ legend {
     padding: 0.8rem 0.6rem;
   }
   .setup-foot {
-    position: sticky;
+    position: fixed;
+    left: 0;
+    right: 0;
     bottom: 0;
-    background: var(--bg);
-    padding: 0.55rem 0 calc(0.55rem + env(safe-area-inset-bottom, 0px));
+    z-index: 9;
+    background: var(--topbar-bg);
+    backdrop-filter: blur(10px);
+    padding: 0.55rem 0.9rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--border);
-    margin: 0 -0.2rem;
+    margin: 0;
+  }
+  /* Content scrolls clear of the fixed bar. */
+  .setup,
+  .soundcheck {
+    padding-bottom: 5.2rem;
   }
   .topbar {
     padding: 0.55rem 0.8rem;
@@ -1658,27 +1667,36 @@ legend {
 }
 
 
-/* Mobile headers: a lone Back action becomes a compact link ABOVE a smaller
-   title (native back-navigation pattern) instead of a full-width button row. */
+/* Mobile headers: a lone Back action is redundant chrome — the Library icon
+   in the top bar reaches the same place — so it's removed entirely. */
 @media (max-width: 560px) {
   h1 {
     font-size: 1.45rem;
   }
-  .section-head:has(.actions button:first-child:last-of-type) {
-    flex-direction: column-reverse;
-    align-items: flex-start;
-    gap: 0.5rem;
+  .section-head:has(.actions button:first-child:last-of-type) .actions {
+    display: none;
+  }
+  .section-head {
     margin-bottom: 0.8rem;
   }
-  .section-head:has(.actions button:first-child:last-of-type) .actions {
-    display: block;
-    width: auto;
+}
+
+
+@media (max-width: 560px) {
+  .seg {
+    display: flex;
+    width: 100%;
   }
-  .section-head:has(.actions button:first-child:last-of-type) .actions button {
-    width: auto;
-    min-height: 0;
-    padding: 0.35rem 0.75rem;
-    font-size: 0.9rem;
-    background: transparent;
+  .seg button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.55rem 0.3rem;
+    text-align: center;
+  }
+  .presets {
+    gap: 0.4rem;
+  }
+  .presets button {
+    min-height: 40px;
   }
 }

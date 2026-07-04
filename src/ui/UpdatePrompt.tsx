@@ -28,6 +28,10 @@ export function UpdatePrompt() {
             className="primary small"
             onClick={() => {
               const fn = (window as unknown as { __updateSW?: (reload?: boolean) => Promise<void> }).__updateSW
+              // updateSW(true) normally skip-waits + reloads, but some service
+              // worker states leave it a no-op — reload regardless so the
+              // button always visibly acts.
+              setTimeout(() => window.location.reload(), 1200)
               void fn?.(true)
             }}
           >
