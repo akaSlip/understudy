@@ -1,6 +1,5 @@
-# Deploys the built app to GitHub Pages on every push to master.
-# One-time setup after pushing this repo to GitHub:
-#   Repo → Settings → Pages → Source: "GitHub Actions"
+# Deploys the built app to GitHub Pages on every push. Pages is auto-enabled
+# by configure-pages (enablement: true) — no manual setup required.
 name: Deploy to GitHub Pages
 
 on:
@@ -32,6 +31,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true # auto-enable Pages — no manual Settings step needed
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
