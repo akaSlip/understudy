@@ -1007,27 +1007,21 @@ button:focus-visible,
     overflow: hidden;
     max-width: 100%;
   }
-  /* Panels become full-width bottom sheets sliding over the tab bar. */
+  /* Panels fill the screen except the tab bar's SESSION row (Auto-cue /
+     Voices / Tune / Finish stays visible and tappable to switch or close). */
   .voice-panel {
     left: 0;
     right: 0;
-    bottom: 0;
+    top: 0;
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
     width: auto;
-    max-height: 72vh;
+    max-height: none;
     transform: none;
-    border-radius: 16px 16px 0 0;
-    border-bottom: none;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
     z-index: 46;
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
-  }
-  .voice-panel::before {
-    content: '';
-    display: block;
-    width: 42px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--border);
-    margin: 0 auto 0.7rem;
+    padding-bottom: 1rem;
   }
   /* Toasts sit under the top bar on mobile — never over the tab bar. */
   .pwa-toast {
@@ -1272,10 +1266,26 @@ legend {
   z-index: 40;
 }
 .voice-panel-head {
+  position: sticky; /* the × stays put while the panel content scrolls */
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.5rem;
+  margin: -0.9rem -1rem 0.5rem;
+  padding: 0.9rem 1rem 0.5rem;
+  background: var(--bg-2);
+}
+.sheet-close {
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.3rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .voice-list {
   list-style: none;
@@ -1775,5 +1785,27 @@ legend {
     width: 100%;
     padding: 0.7rem 0.4rem;
     font-size: 0.95rem;
+  }
+}
+
+
+/* Mobile panel modals — appended LAST so these override the desktop base
+   rules (same specificity, later order wins). Fills the screen except the
+   tab bar's session row (Auto-cue / Voices / Tune / Finish stays tappable). */
+@media (max-width: 620px) {
+  .voice-panel {
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-height: none;
+    transform: none;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+    padding-bottom: 1rem;
+    z-index: 46;
   }
 }

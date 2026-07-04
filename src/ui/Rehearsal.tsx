@@ -296,7 +296,6 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
         })
       }}
       onStop={() => engineRef.current?.endSession()}
-      onExit={() => go({ view: 'library' })}
     />
   )
 }
@@ -680,7 +679,6 @@ function RunningView(props: {
   onChangeVoice: (characterId: string, voiceId?: string) => void
   onUpdateSettings: (patch: Partial<AppSettings>) => void
   onStop: () => void
-  onExit: () => void
 }) {
   const { play, state, settings, engine, levelStore } = props
   const nameById = useMemo(() => new Map(play.characters.map((c) => [c.id, c.name])), [play])
@@ -740,9 +738,6 @@ function RunningView(props: {
         <div className="progress-track">
           <div className="progress-fill" style={{ width: `${state.progressPct}%` }} />
         </div>
-        <button className="ghost" onClick={props.onExit}>
-          Exit
-        </button>
       </div>
 
       {state.error && <div className="banner error">{state.error}</div>}
@@ -914,8 +909,8 @@ function RunningView(props: {
         >
           <div className="voice-panel-head">
             <strong>Scoring &amp; projection</strong>
-            <button className="ghost" onClick={() => setPanel('none')} autoFocus>
-              Done
+            <button className="sheet-close" onClick={() => setPanel('none')} aria-label="Close" autoFocus>
+              ×
             </button>
           </div>
           <label className="opt">
@@ -1270,8 +1265,8 @@ function VoicePanel(props: {
     >
       <div className="voice-panel-head">
         <strong>Scene-partner voices</strong>
-        <button className="ghost" onClick={props.onClose} autoFocus>
-          Done
+        <button className="sheet-close" onClick={props.onClose} aria-label="Close" autoFocus>
+          ×
         </button>
       </div>
       {options.length === 0 ? (
