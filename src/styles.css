@@ -1621,3 +1621,24 @@ legend {
     min-height: 44px;
   }
 }
+
+/* Top-bar nav: icon beside the label on larger screens… */
+.topbar nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.nav-icon {
+  font-size: 1.02rem;
+  line-height: 1;
+}
+/* …icon only on phones (aria-label/title still name the buttons). */
+@media (max-width: 560px) {
+  .nav-label {
+    display: none;
+  }
+  .topbar nav button {
+    min-width: 2.6rem;
+    justify-content: center;
+  }
+}

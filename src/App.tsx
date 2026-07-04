@@ -22,6 +22,12 @@ export function App() {
   const { ready, settings, updateSettings } = useApp()
   const [route, setRoute] = useState<Route>({ view: 'library' })
 
+  // Views swap within one page, so the browser keeps the previous view's
+  // scroll position — every navigation starts at the top instead.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [route])
+
   // Apply the theme and follow the OS preference live when set to 'system'.
   useEffect(() => {
     applyTheme(settings.theme)
@@ -51,11 +57,23 @@ export function App() {
           <span className="logo-mark">◐</span> Understudy
         </button>
         <nav>
-          <button className={route.view === 'library' ? 'active' : ''} onClick={() => setRoute({ view: 'library' })}>
-            Library
+          <button
+            className={route.view === 'library' ? 'active' : ''}
+            onClick={() => setRoute({ view: 'library' })}
+            aria-label="Library"
+            title="Library"
+          >
+            <span className="nav-icon" aria-hidden="true">🗂</span>
+            <span className="nav-label">Library</span>
           </button>
-          <button className={route.view === 'settings' ? 'active' : ''} onClick={() => setRoute({ view: 'settings' })}>
-            Settings
+          <button
+            className={route.view === 'settings' ? 'active' : ''}
+            onClick={() => setRoute({ view: 'settings' })}
+            aria-label="Settings"
+            title="Settings"
+          >
+            <span className="nav-icon" aria-hidden="true">⚙</span>
+            <span className="nav-label">Settings</span>
           </button>
           <button
             className={`icon-btn ${route.view === 'help' ? 'active' : ''}`}
