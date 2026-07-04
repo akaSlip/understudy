@@ -1262,7 +1262,7 @@ legend {
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
-  padding: 0.9rem 1rem;
+  padding: 0 1rem 0.9rem; /* top padding lives in the sticky header */
   z-index: 40;
 }
 .voice-panel-head {
@@ -1272,8 +1272,8 @@ legend {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: -0.9rem -1rem 0.5rem;
-  padding: 0.9rem 1rem 0.5rem;
+  margin: 0 -1rem 0.6rem;
+  padding: 0.9rem 1rem 0.6rem;
   background: var(--bg-2);
 }
 .sheet-close {
