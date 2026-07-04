@@ -142,4 +142,4 @@ Stack: React + Vite + TypeScript, `vite-plugin-pwa` (Workbox), Dexie,
 
 ## Licence
 
-No licence has been chosen yet — all rights reserved until one is added.
+[MIT](LICENSE) — use it, modify it, share it; keep the copyright notice.
