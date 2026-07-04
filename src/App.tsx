@@ -4,6 +4,7 @@ import { Library } from './ui/Library'
 import { Editor } from './ui/Editor'
 import { Rehearsal } from './ui/Rehearsal'
 import { Settings } from './ui/Settings'
+import { Help } from './ui/Help'
 import { UpdatePrompt } from './ui/UpdatePrompt'
 import { useApp } from './ui/useApp'
 
@@ -12,6 +13,7 @@ export type Route =
   | { view: 'edit'; playId?: string }
   | { view: 'rehearse'; playId: string }
   | { view: 'settings' }
+  | { view: 'help' }
 
 const THEME_ORDER: Theme[] = ['system', 'light', 'dark']
 const THEME_ICON: Record<Theme, string> = { system: '◐', light: '☀', dark: '☾' }
@@ -56,6 +58,14 @@ export function App() {
             Settings
           </button>
           <button
+            className={`icon-btn ${route.view === 'help' ? 'active' : ''}`}
+            onClick={() => setRoute({ view: 'help' })}
+            aria-label="Help"
+            title="Help"
+          >
+            ?
+          </button>
+          <button
             className="theme-toggle"
             onClick={cycleTheme}
             title={`Theme: ${settings.theme} — click to change`}
@@ -71,6 +81,7 @@ export function App() {
         {route.view === 'edit' && <Editor playId={route.playId} go={setRoute} />}
         {route.view === 'rehearse' && <Rehearsal playId={route.playId} go={setRoute} />}
         {route.view === 'settings' && <Settings />}
+        {route.view === 'help' && <Help />}
       </main>
 
       <UpdatePrompt />
