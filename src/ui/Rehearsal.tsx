@@ -99,12 +99,19 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
     () => (play ? summarizeSection(play, myCharId, order) : { beats: 0, myLines: 0, clusters: 0 }),
     [play, myCharId, order],
   )
-  // The actor's NEXT line after the current position (for the peek strip).
-  const nextMyLine = useMemo(() => {
+  // The NEXT dialogue line after the current position (for the peek strip),
+  // labelled with its speaker — "YOU" for the actor's own.
+  const nextLine = useMemo(() => {
     if (!play || !state) return undefined
     for (let p = state.beatIndex + 1; p < order.length; p++) {
       const b = play.beats[order[p]]
-      if (b?.kind === 'dialogue' && b.characterId === myCharId) return b.text
+      if (b?.kind === 'dialogue' && b.characterId) {
+        const who =
+          b.characterId === myCharId
+            ? 'YOU'
+            : (play.characters.find((c) => c.id === b.characterId)?.name ?? '')
+        return { who, text: b.text }
+      }
     }
     return undefined
   }, [play, state, order, myCharId])
@@ -283,7 +290,7 @@ export function Rehearsal({ playId, go }: { playId: string; go: (r: Route) => vo
       levelStore={levelStore}
       engine={engineRef.current!}
       myCharId={myCharId}
-      nextMyLine={nextMyLine}
+      nextLine={nextLine}
       onUpdateSettings={updateSettings}
       voiceAssignments={voiceAssignments}
       onChangeVoice={(charId, voiceId) => {
@@ -673,8 +680,8 @@ function RunningView(props: {
   levelStore: LevelStore
   engine: RehearsalEngine
   myCharId: string
-  /** First words of the actor's NEXT line (peek shown on larger screens). */
-  nextMyLine?: string
+  /** The next dialogue line + its speaker (peek shown on larger screens). */
+  nextLine?: { who: string; text: string }
   voiceAssignments: Map<string, VoiceAssignment>
   onChangeVoice: (characterId: string, voiceId?: string) => void
   onUpdateSettings: (patch: Partial<AppSettings>) => void
@@ -812,9 +819,9 @@ function RunningView(props: {
         />
       )}
 
-      {props.settings.showNextPeek && props.nextMyLine && (
-        <p className="next-peek muted" title="Your next line">
-          <span className="next-peek-label">Next (you)</span> {props.nextMyLine}
+      {props.settings.showNextPeek && props.nextLine && (
+        <p className="next-peek muted" title="Next line">
+          <span className="next-peek-label">Next ({props.nextLine.who})</span> {props.nextLine.text}
         </p>
       )}
 

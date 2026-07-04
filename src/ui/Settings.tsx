@@ -269,8 +269,8 @@ export function Settings() {
               onChange={(e) => updateSettings({ showNextPeek: e.target.checked })}
             />
             <span>
-              <strong>Peek my next line</strong> — show the first words of your upcoming line during rehearsal
-              (tablets and computers only).
+              <strong>Peek next line</strong> — show the first words of the upcoming line, with its speaker's name,
+              during rehearsal (tablets and computers only).
             </span>
           </label>
           <label className="opt">

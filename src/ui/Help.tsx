@@ -101,7 +101,7 @@ export function Help() {
         <p className="muted small">
           While you speak, a level meter runs down the right edge of the screen. With projection coaching on it shows
           a loudness target to push past — great for building stage volume. On tablets and computers, Settings can
-          also show a one-line peek of your next line.
+          also show a one-line peek of the next line and who speaks it.
         </p>
       </section>
 
