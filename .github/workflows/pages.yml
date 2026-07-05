@@ -1,5 +1,7 @@
-# Deploys the built app to GitHub Pages on every push. Pages is auto-enabled
-# by configure-pages (enablement: true) — no manual setup required.
+# Deploys the built app to GitHub Pages on every push. One-time setup after
+# forking/pushing: Repo → Settings → Pages → Source: "GitHub Actions"
+# (enablement: true below attempts this automatically but token permissions
+# don't always allow it — the manual flip is the reliable path).
 name: Deploy to GitHub Pages
 
 on:

@@ -43,6 +43,7 @@ export function Help() {
         <p className="muted small">
           A line passes when enough of it is right — set the bar with “Accuracy needed to pass” in Settings, or from
           the 🎚 Tune panel mid-rehearsal. Pause as long as you like mid-line: nothing moves on until you finish it.
+          “Your results” at the end replays every line in these same colours.
         </p>
       </section>
 
@@ -68,7 +69,8 @@ export function Help() {
       <section className="help-block">
         <h3>Voices</h3>
         <p>
-          The free voices (System and Kokoro) work offline with no setup. For truly expressive acting voices, Settings
+          The free voices work offline with no setup — Kokoro (the default) downloads its voice once, then
+          everything is on this device. For truly expressive acting voices, Settings
           lets you add your own API key for ElevenLabs, OpenAI, Azure, or Google Gemini — the key stays on this device
           and each line's audio is generated once, then cached, so it replays instantly and offline.
         </p>
@@ -99,7 +101,8 @@ export function Help() {
           </li>
         </ul>
         <p className="muted small">
-          While you speak, a level meter runs down the right edge of the screen. With projection coaching on it shows
+          Your lines stay amber; every other character keeps their own colour wherever their name appears, so you
+          always know who's up. While you speak, a level meter runs down the right edge of the screen. With projection coaching on it shows
           a loudness target to push past — great for building stage volume. On tablets and computers, Settings can
           also show a one-line peek of the next line and who speaks it.
         </p>

@@ -17,7 +17,8 @@ of the box; four expressive cloud voice engines are available bring-your-own-key
 - **Real-time scoring**: each line you speak is scored 0–100% with a per-word
   green/amber/red map. Homophones count; one dropped word doesn't cascade into red.
 - **Sound check & projection coaching**: a first-run mic check, a console-style level
-  meter beside your line, and an optional loudness target for building projection.
+  meter pinned to the screen edge while you speak, and an optional loudness target
+  for building projection.
 - **Two kinds of inline cue**: `{braces}` are *vocal* cues — `{angrily}` shapes how
   the voice delivers the words after it; `(parentheses)` are *performance* cues —
   shown to the actor, never spoken or scored. A cue palette in the editor lets you
@@ -30,8 +31,12 @@ of the box; four expressive cloud voice engines are available bring-your-own-key
   voices; per-character **voice, personality, and age** (child → elderly) in the
   editor; swap voices mid-rehearsal from the 🎭 Voices panel.
 - **Rehearse your way**: whole play, one scene, or just your lines with cue context;
-  read-along mode (no mic); adjustable pass threshold from the 🎚 Tune panel; sections
-  are remembered per play and part.
+  read-along mode (no mic); adjustable pass threshold and optional auto-scroll for
+  long speeches from the 🎚 Tune panel; sections are remembered per play and part.
+- **A stage you can read at a glance**: your lines stay amber while every other
+  character keeps their own colour throughout; results replay each line in the same
+  word colours as the teleprompter; an optional one-line peek shows the next line and
+  its speaker (tablets/computers). In-app Help (the ? button) explains it all.
 
 ## Why it's built this way
 
@@ -50,8 +55,8 @@ of the box; four expressive cloud voice engines are available bring-your-own-key
 
 | Engine | Cost | Where it runs | Notes |
 |---|---|---|---|
+| Kokoro (neural) | free | on device | **the default** — less robotic; ~90 MB model on first use |
 | System voice | free | on device¹ | instant, quality varies by platform |
-| Kokoro (neural) | free | on device | less robotic; ~90 MB model on first use |
 | ElevenLabs v3 | your key | cloud | best acting; `{vocal}` cues become audio tags |
 | OpenAI | your key | cloud | cues become delivery instructions |
 | Azure Speech | your key | cloud | cues map to expressive SSML styles |
@@ -75,8 +80,9 @@ npm run build      # production build (typecheck gates it)
 npm run preview    # serve the production build locally
 ```
 
-The first rehearsal downloads the on-device Whisper model (~40 MB `tiny`), then it's
-cached for offline use.
+Node 20+ (CI builds on 24). The first rehearsal downloads the on-device models —
+Whisper (~40 MB `tiny`) and the default Kokoro voice (~90 MB) — then both are cached
+for offline use.
 
 ## Deploy
 
@@ -106,7 +112,9 @@ account, no analytics, and no telemetry. Data leaves the device only when:
 
 - **Whisper recognition**: any browser with WebAssembly (everywhere). WebGPU
   accelerates it on Chrome/Edge; elsewhere it falls back to slower WASM.
-- **Web Speech recognition**: Chrome/Edge/Safari only (no Firefox) — optional.
+- **Web Speech recognition**: Chrome/Edge/Safari only (no Firefox) — optional, and it
+  needs to reach the browser vendor's speech servers (VPNs and firewalls often block
+  this — the app detects it and suggests Whisper).
 - **PWA install**: Chromium browsers and iOS/Android; works as a normal site elsewhere.
 
 ## Architecture
