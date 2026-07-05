@@ -57,6 +57,9 @@ export class WebSpeechRecognizer implements Recognizer {
   private running = false
   /** Set on unrecoverable errors (permission revoked) — stops the restart loop. */
   private fatal = false
+  /** Consecutive 'network' failures — Chrome's speech service is cloud-backed
+   *  and unreachable behind some VPNs/firewalls; give up after a few. */
+  private networkErrors = 0
   /** Local level meter. The Web Speech API exposes no audio levels, so the mic
    *  meter and projection coaching were dead on this engine — a MicVAD runs
    *  purely for its onLevel frames (utterances discarded; audio never leaves
@@ -92,6 +95,7 @@ export class WebSpeechRecognizer implements Recognizer {
     this.meter = meter
     this.active = true
     this.fatal = false
+    this.networkErrors = 0
     const rec = new Ctor()
     rec.lang = 'en-GB'
     rec.continuous = true
@@ -100,6 +104,7 @@ export class WebSpeechRecognizer implements Recognizer {
     rec.onspeechstart = () => handlers.onSpeechStart?.()
     rec.onspeechend = () => handlers.onSpeechEnd?.()
     rec.onresult = (e) => {
+      this.networkErrors = 0 // the service is reachable after all
       if (!this.listen) return // disarmed — ignore stray results
       let interim = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -115,6 +120,22 @@ export class WebSpeechRecognizer implements Recognizer {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         this.fatal = true
         handlers.onError?.(new Error('Microphone access was denied — allow it in the browser and try again.'))
+        return
+      }
+      // 'network': Chrome could not reach Google's speech servers (Web Speech
+      // is cloud-backed). Retry once — transient blips happen — then stop and
+      // point at the on-device engine instead of flashing errors forever.
+      if (e.error === 'network') {
+        this.networkErrors++
+        if (this.networkErrors >= 2) {
+          this.fatal = true
+          handlers.onError?.(
+            new Error(
+              "Chrome can't reach its speech service (Web Speech needs Google's servers — VPNs and firewalls often block it). " +
+                'Switch to Whisper (on-device) in Settings → Scoring, which works offline.',
+            ),
+          )
+        }
         return
       }
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
