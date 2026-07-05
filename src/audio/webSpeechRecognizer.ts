@@ -4,6 +4,7 @@
 // the same Recognizer interface as an opt-in.
 
 import type { LoadProgress, Recognizer, RecognizerHandlers } from './recognizer'
+import { MicVAD } from './vad'
 
 // Minimal typings for the non-standardised Web Speech API.
 interface SpeechRecognitionAlternativeLike {
@@ -56,6 +57,11 @@ export class WebSpeechRecognizer implements Recognizer {
   private running = false
   /** Set on unrecoverable errors (permission revoked) — stops the restart loop. */
   private fatal = false
+  /** Local level meter. The Web Speech API exposes no audio levels, so the mic
+   *  meter and projection coaching were dead on this engine — a MicVAD runs
+   *  purely for its onLevel frames (utterances discarded; audio never leaves
+   *  the device from this stream). */
+  private meter: MicVAD | null = null
 
   init(_onProgress?: (p: LoadProgress) => void): Promise<void> {
     if (!webSpeechSupported()) return Promise.reject(new Error('Web Speech API not supported in this browser'))
@@ -65,20 +71,29 @@ export class WebSpeechRecognizer implements Recognizer {
   async start(handlers: RecognizerHandlers): Promise<void> {
     const Ctor = getCtor()
     if (!Ctor) throw new Error('Web Speech API not supported')
-    // Surface the mic-permission prompt NOW, at the setup gate ("Requesting
-    // microphone…"), not seconds into the scene when the first line arms. The
-    // stream is released immediately; Web Speech manages its own capture, and
-    // the grant is remembered.
+    // Chrome allows only ONE live SpeechRecognition per page. start() can be
+    // called again on the same instance (sound check → rehearsal reuses the
+    // recognizer), and without tearing the old session down first the new one
+    // is killed with a silent 'aborted' — "doesn't register at all".
+    this.teardownSession()
+    this.meter?.stop()
+    // The level meter doubles as the mic-permission prompt at the setup gate
+    // ("Requesting microphone…"). Its frames are gated by setActive, so
+    // nothing is even measured while the scene partner speaks.
+    const meter = new MicVAD({
+      onLevel: (l) => handlers.onLevel?.(l),
+      onUtterance: () => {}, // levels only — recognition is the cloud engine's job
+    })
     try {
-      const probe = await navigator.mediaDevices.getUserMedia({ audio: true })
-      probe.getTracks().forEach((t) => t.stop())
+      await meter.start()
     } catch {
       throw new Error('Microphone access was denied — allow it in the browser and try again.')
     }
+    this.meter = meter
     this.active = true
     this.fatal = false
     const rec = new Ctor()
-    rec.lang = 'en-US'
+    rec.lang = 'en-GB'
     rec.continuous = true
     rec.interimResults = true
     rec.maxAlternatives = 1
@@ -138,6 +153,7 @@ export class WebSpeechRecognizer implements Recognizer {
    *  the line's first syllable. */
   setActive(active: boolean): void {
     this.listen = active
+    this.meter?.setEnabled(active)
     if (active) {
       this.startSession()
     } else if (this.rec && this.running) {
@@ -151,12 +167,12 @@ export class WebSpeechRecognizer implements Recognizer {
     }
   }
 
-  stop(): Promise<void> {
-    this.active = false
-    this.listen = false
+  private teardownSession(): void {
     this.running = false
     if (this.rec) {
       this.rec.onend = null
+      this.rec.onresult = null
+      this.rec.onerror = null
       try {
         this.rec.abort()
       } catch {
@@ -164,6 +180,14 @@ export class WebSpeechRecognizer implements Recognizer {
       }
       this.rec = null
     }
+  }
+
+  stop(): Promise<void> {
+    this.active = false
+    this.listen = false
+    this.teardownSession()
+    this.meter?.stop()
+    this.meter = null
     return Promise.resolve()
   }
 
